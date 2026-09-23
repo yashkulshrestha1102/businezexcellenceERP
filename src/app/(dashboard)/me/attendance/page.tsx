@@ -71,7 +71,7 @@ export default function MyAttendancePage() {
         <div className="panel-body" style={{ padding: 0 }}>
           {loading ? (
   <TableSkeleton rows={5} />
-) : filtered.length === 0 ? (
+) : rows.length === 0 ? (
             <div className="empty">
               <div className="big">📅</div>
               Is month koi record nahi

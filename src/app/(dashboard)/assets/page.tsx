@@ -108,8 +108,7 @@ export default function AssetsPage() {
         <div className="panel-body" style={{ padding: 0 }}>
           {loading ? (
   <TableSkeleton rows={5} />
-) : filtered.length === 0 ? (
-            <div className="empty">
+) : assets.length === 0 ? (            <div className="empty">
               <div className="big">💻</div>
               Koi asset nahi — Add Asset dabao
             </div>

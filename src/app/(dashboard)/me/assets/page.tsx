@@ -44,7 +44,7 @@ export default function MyAssetsPage() {
 
       <div className="panel">
         <div className="panel-body" style={{ padding: 0 }}>
-          {loading ? ( <TableSkeleton rows={5} />) : filtered.length === 0 ? (
+          {loading ? ( <TableSkeleton rows={5} />) : assets.length === 0 ? (
             <div className="empty">
               <div className="big">💻</div>
               Abhi koi asset assign nahi

@@ -79,7 +79,7 @@ export default function MailPage() {
         <div className="panel-body" style={{ padding: 0 }}>
           {loading ? (
   <TableSkeleton rows={5} />
-) : filtered.length === 0 ? (
+) : mails.length === 0 ? (
             <div className="empty">
               <div className="big">📭</div>
               Abhi tak koi mail nahi
