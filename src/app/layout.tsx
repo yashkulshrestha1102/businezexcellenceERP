@@ -7,7 +7,6 @@ export const metadata: Metadata = {
   description: 'Reliable employee and attendance management system',
   applicationName: 'Roster Pro',
   authors: [{ name: 'Roster Pro' }],
-  manifest: '/manifest.json',
   appleWebApp: {
     capable: true,
     statusBarStyle: 'default',
