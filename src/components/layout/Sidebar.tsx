@@ -1,5 +1,6 @@
 'use client';
 
+import { useEffect } from 'react';
 import Link from 'next/link';
 import { usePathname, useRouter } from 'next/navigation';
 import { useAuth } from '@/lib/hooks/useAuth';
@@ -10,7 +11,10 @@ import { initials } from '@/lib/utils/date';
 import { APP_NAME } from '@/lib/constants';
 
 const ADMIN_NAV = [
-  { section: 'Main', items: [{ label: 'Dashboard', href: '/dashboard', icon: '📊' }] },
+  {
+    section: 'Main',
+    items: [{ label: 'Dashboard', href: '/dashboard', icon: '📊' }],
+  },
   {
     section: 'Manage',
     items: [
@@ -31,7 +35,10 @@ const ADMIN_NAV = [
 ];
 
 const EMPLOYEE_NAV = [
-  { section: 'Main', items: [{ label: 'My Dashboard', href: '/dashboard', icon: '🏠' }] },
+  {
+    section: 'Main',
+    items: [{ label: 'My Dashboard', href: '/dashboard', icon: '🏠' }],
+  },
   {
     section: 'Self Service',
     items: [
@@ -50,24 +57,68 @@ const EMPLOYEE_NAV = [
 export default function Sidebar() {
   const pathname = usePathname();
   const router = useRouter();
-  const { profile } = useAuth();
-  const { settings } = useCompanySettings();
+  const { profile, signOut } = useAuth();
+  const { settings, load } = useCompanySettings();
+
+  // ✅ Initial load — Sidebar mount hote hi settings fetch karo
+  useEffect(() => {
+    load();
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, []);
+
+  // ✅ REALTIME — Admin ne settings change ki toh sabko instant update mile
+  useEffect(() => {
+    const supabase = createClient();
+
+    const channel = supabase
+      .channel('company_settings_changes')
+      .on(
+        'postgres_changes',
+        {
+          event: 'UPDATE',
+          schema: 'public',
+          table: 'company_settings',
+        },
+        (payload) => {
+          console.log('🔔 Company settings updated:', payload.new);
+          load(true); // Force reload
+        }
+      )
+      .subscribe();
+
+    return () => {
+      supabase.removeChannel(channel);
+    };
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, []);
 
   const nav = profile?.role === 'admin' ? ADMIN_NAV : EMPLOYEE_NAV;
   const brandName = settings?.company_name || APP_NAME;
 
+  // ✅ Dynamic brand initials — company name ke pehle 2 words ke initials
+  const brandInitial = brandName
+    .split(' ')
+    .filter((w) => w.length > 0)
+    .map((w) => w[0])
+    .join('')
+    .slice(0, 2)
+    .toUpperCase();
+
   async function handleLogout() {
-    const supabase = createClient();
-    await supabase.auth.signOut();
-    toast.success('Logout ho gaya');
-    router.push('/login');
-    router.refresh();
+    try {
+      await signOut();
+      toast.success('Logout ho gaya');
+      router.push('/login');
+      router.refresh();
+    } catch (err) {
+      toast.error('Logout fail: ' + (err as Error).message);
+    }
   }
 
   return (
     <aside className="sidebar">
       <div className="brand">
-        <div className="brand-icon">📋</div>
+        <div className="brand-icon">{brandInitial || 'RP'}</div>
         <div className="brand-text">
           <h2>{brandName}</h2>
           <span>{profile?.role === 'admin' ? 'Admin' : 'Employee'}</span>
@@ -82,6 +133,7 @@ export default function Sidebar() {
               const isActive =
                 pathname === item.href ||
                 (item.href !== '/dashboard' && pathname.startsWith(item.href));
+
               return (
                 <Link
                   key={item.href}

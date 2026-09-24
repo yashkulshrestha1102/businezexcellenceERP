@@ -4,11 +4,11 @@ import { useState, useEffect, useCallback } from 'react';
 import { toast } from 'sonner';
 import { useAuth } from '@/lib/hooks/useAuth';
 import { useCompanySettings } from '@/lib/hooks/useCompanySettings';
+import { useTodayAttendance } from '@/lib/hooks/useTodayAttendance';
 import { todayStr, fmtDate, fmtTime, initials } from '@/lib/utils/date';
 import {
   checkIn,
   checkOut,
-  getMyTodayAttendance,
 } from '@/lib/actions/attendance';
 import { getMyLeaveBalance } from '@/lib/actions/leaves';
 import { getMyAssets } from '@/lib/actions/assets';
@@ -35,38 +35,37 @@ export default function EmployeeDashboard() {
   const { profile } = useAuth();
   const { settings } = useCompanySettings();
 
-  const [today, setToday] = useState<{
-    check_in: string | null;
-    check_out: string | null;
-    status: string;
-    late: boolean;
-  } | null>(null);
+  // ✅ Cached hook — refresh pe instant, no skeleton flicker
+  const {
+    today,
+    initialized,
+    loadToday,
+  } = useTodayAttendance();
+
   const [balance, setBalance] = useState({ approved: 0, pending: 0 });
   const [assetCount, setAssetCount] = useState(0);
-  const [loading, setLoading] = useState(true);
+  const [loading, setLoading] = useState(!initialized);
   const [working, setWorking] = useState(false);
 
-  const load = useCallback(async () => {
-    setLoading(true);
+  // Load once on mount — non-critical data can show skeleton
+  const loadStats = useCallback(async () => {
     try {
-      const [t, b, a] = await Promise.all([
-        getMyTodayAttendance(),
+      const [b, a] = await Promise.all([
         getMyLeaveBalance(),
         getMyAssets(),
       ]);
-      setToday(t);
       setBalance(b);
       setAssetCount(a.length);
     } catch (err) {
-      toast.error((err as Error).message);
-    } finally {
-      setLoading(false);
+      console.error('Stats load failed:', err);
     }
   }, []);
 
   useEffect(() => {
-    load();
-  }, [load]);
+    loadToday();
+    loadStats().finally(() => setLoading(false));
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, []);
 
   async function handleCheckIn() {
     setWorking(true);
@@ -75,7 +74,7 @@ export default function EmployeeDashboard() {
 
       if (res.alreadyCheckedIn) {
         toast.info(res.message || 'Already checked in', { duration: 3000 });
-        load();
+        await loadToday(true);
         return;
       }
 
@@ -85,7 +84,7 @@ export default function EmployeeDashboard() {
           : `Check In — ${res.time}`,
         { duration: 3000 }
       );
-      load();
+      await loadToday(true);
     } catch (err) {
       toast.error((err as Error).message);
     } finally {
@@ -100,12 +99,12 @@ export default function EmployeeDashboard() {
 
       if (res.alreadyCheckedOut) {
         toast.info(res.message || 'Already checked out', { duration: 3000 });
-        load();
+        await loadToday(true);
         return;
       }
 
       toast.success(`Check Out — ${res.time} (${res.hours}h)`);
-      load();
+      await loadToday(true);
     } catch (err) {
       toast.error((err as Error).message);
     } finally {
@@ -119,17 +118,32 @@ export default function EmployeeDashboard() {
   const hasCheckOut = !!today?.check_out;
   const brandName = settings?.company_name || APP_NAME;
 
+  // ✅ Use today.date instead of todayStr() — record ki actual date
   let headline: string;
   let sub: string;
   if (hasCheckIn && hasCheckOut) {
     headline = 'Aaj ka kaam complete ✅';
-    sub = `${fmtDate(todayStr())} • In: ${fmtTime(today!.check_in)} • Out: ${fmtTime(today!.check_out)}`;
+    sub = `${fmtDate(today.date)} • In: ${fmtTime(today.check_in)} • Out: ${fmtTime(today.check_out)}`;
   } else if (hasCheckIn) {
     headline = 'Aaj present ho ✅';
-    sub = `${fmtDate(todayStr())} • Check In: ${fmtTime(today!.check_in)}${today!.late ? ' (late)' : ''}`;
+    sub = `${fmtDate(today.date)} • Check In: ${fmtTime(today.check_in)}${today.late ? ' (late)' : ''}`;
   } else {
     headline = 'Aaj ka attendance mark karo';
     sub = `${fmtDate(todayStr())} • Abhi tak check-in nahi kiya`;
+  }
+
+  // ✅ Work hours — formatted properly
+  const workStart = settings?.work_start ? fmtTime(settings.work_start) : '—';
+  const workEnd = settings?.work_end ? fmtTime(settings.work_end) : '—';
+
+  // ✅ First load only (no cache) — show skeleton
+  if (loading && !initialized) {
+    return (
+      <div className="page-loader">
+        <div className="spinner spinner-dark" />
+        <span>Loading dashboard...</span>
+      </div>
+    );
   }
 
   return (
@@ -179,8 +193,8 @@ export default function EmployeeDashboard() {
         </div>
         <div className="stat">
           <div className="lbl">Work Hours</div>
-          <div className="val" style={{ fontSize: 20 }}>
-            {settings?.work_start?.slice(0, 5) || '—'} - {settings?.work_end?.slice(0, 5) || '—'}
+          <div className="val" style={{ fontSize: 18 }}>
+            {workStart} - {workEnd}
           </div>
           <div className="sub">office timings</div>
         </div>

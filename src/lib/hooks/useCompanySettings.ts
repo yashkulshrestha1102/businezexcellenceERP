@@ -12,8 +12,11 @@ import {
   STORAGE_KEYS,
 } from '@/lib/constants';
 
+const CACHE_TTL_MS = 5 * 60 * 1000; // 5 minutes
+
 interface CompanySettingsState {
   settings: CompanySettings | null;
+  loadedAt: number | null;
   loading: boolean;
   initialized: boolean;
   load: (force?: boolean) => Promise<void>;
@@ -36,25 +39,34 @@ export const useCompanySettings = create<CompanySettingsState>()(
   persist(
     (set, get) => ({
       settings: null,
+      loadedAt: null,
       loading: false,
       initialized: false,
 
       load: async (force = false) => {
         const state = get();
         if (state.loading) return;
-        if (state.initialized && !force) return;
+
+        const now = Date.now();
+        const isStale =
+          !state.loadedAt || now - state.loadedAt > CACHE_TTL_MS;
+
+        if (state.initialized && !force && !isStale) return;
 
         set({ loading: true });
         try {
           const s = await getCompanySettings();
           set({
             settings: (s as CompanySettings) || fallback,
+            loadedAt: now,
             loading: false,
             initialized: true,
           });
-        } catch {
+        } catch (err) {
+          console.error('Company settings load failed:', err);
           set({
-            settings: fallback,
+            settings: state.settings || fallback,
+            loadedAt: now,
             loading: false,
             initialized: true,
           });
@@ -64,6 +76,7 @@ export const useCompanySettings = create<CompanySettingsState>()(
       clear: () =>
         set({
           settings: null,
+          loadedAt: null,
           loading: false,
           initialized: false,
         }),
@@ -71,7 +84,10 @@ export const useCompanySettings = create<CompanySettingsState>()(
     {
       name: STORAGE_KEYS.COMPANY_SETTINGS,
       storage: createJSONStorage(() => localStorage),
-      partialize: (s) => ({ settings: s.settings }),
+      partialize: (s) => ({
+        settings: s.settings,
+        loadedAt: s.loadedAt,
+      }),
     }
   )
 );
