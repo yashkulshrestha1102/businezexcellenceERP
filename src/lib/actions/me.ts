@@ -15,6 +15,15 @@ function getAdminClient() {
 async function requireAuth() {
   const supabase = await createClient();
   const { data: { user } } = await supabase.auth.getUser();
+
+
+
+  console.log('🔍 Auth check:', {
+    hasUser: !!user,
+    userId: user?.id,
+    hasServiceKey: !!process.env.SUPABASE_SERVICE_ROLE_KEY,   // ← YE ADD KAR
+    hasSupabaseUrl: !!process.env.NEXT_PUBLIC_SUPABASE_URL,
+  });
   if (!user) throw new Error('Not authenticated');
 
   const adminClient = getAdminClient();

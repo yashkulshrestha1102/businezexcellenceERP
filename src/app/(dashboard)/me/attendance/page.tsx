@@ -27,7 +27,10 @@ export default function MyAttendancePage() {
     try {
       const data = await getMyMonthAttendance();
       setRows(data as Att[]);
+
+      
     } catch (err) {
+      console.error('🔥 Attendance load error:', err); 
       toast.error((err as Error).message);
     } finally {
       setLoading(false);
