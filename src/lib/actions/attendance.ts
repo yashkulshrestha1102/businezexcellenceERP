@@ -2,20 +2,21 @@
 
 import { createClient } from '@/lib/supabase/server';
 import { createClient as createAdminClient } from '@supabase/supabase-js';
+import type { SupabaseClient } from '@supabase/supabase-js';
 import { revalidatePath } from 'next/cache';
+import { todayStr, nowTime } from '@/lib/utils/date';
+import {
+  DEFAULT_WORK_START,
+  DEFAULT_HALF_DAY_HOURS,
+  DEFAULT_LATE_GRACE_MINUTES,
+} from '@/lib/constants';
 
-function getAdminClient() {
+function getAdminClient(): SupabaseClient {
   const url = process.env.NEXT_PUBLIC_SUPABASE_URL;
   const serviceKey = process.env.SUPABASE_SERVICE_ROLE_KEY;
 
-  if (!url) {
-    console.error('❌ NEXT_PUBLIC_SUPABASE_URL is missing');
-    throw new Error('Server configuration error: missing Supabase URL');
-  }
-  if (!serviceKey) {
-    console.error('❌ SUPABASE_SERVICE_ROLE_KEY is missing');
-    throw new Error('Server configuration error: missing service role key');
-  }
+  if (!url) throw new Error('Missing NEXT_PUBLIC_SUPABASE_URL');
+  if (!serviceKey) throw new Error('Missing SUPABASE_SERVICE_ROLE_KEY');
 
   return createAdminClient(url, serviceKey, {
     auth: { autoRefreshToken: false, persistSession: false },
@@ -24,24 +25,18 @@ function getAdminClient() {
 
 async function requireAuth() {
   const supabase = await createClient();
-  const {
-    data: { user },
-  } = await supabase.auth.getUser();
-
+  const { data: { user } } = await supabase.auth.getUser();
   if (!user) throw new Error('Not authenticated');
 
   const adminClient = getAdminClient();
-  const { data: profile, error: profileError } = await adminClient
+  const { data: profile, error } = await adminClient
     .from('profiles')
-    .select('id, role, name')
+    .select('id, role, name, email')
     .eq('id', user.id)
     .maybeSingle();
 
-  if (profileError) {
-    throw new Error('Profile fetch failed: ' + profileError.message);
-  }
+  if (error) throw new Error('Profile fetch failed: ' + error.message);
   if (!profile) throw new Error('Profile not found');
-
   return { user, profile, adminClient };
 }
 
@@ -51,20 +46,25 @@ async function requireAdmin() {
   return ctx;
 }
 
-// Get today's date in local timezone (YYYY-MM-DD)
-function todayStr(): string {
-  const now = new Date();
-  const y = now.getFullYear();
-  const m = String(now.getMonth() + 1).padStart(2, '0');
-  const d = String(now.getDate()).padStart(2, '0');
-  return `${y}-${m}-${d}`;
-}
+// Load settings — use `any` for data since Supabase doesn't know our schema
+async function getSettings(adminClient: SupabaseClient) {
+  const { data } = await adminClient
+    .from('company_settings')
+    .select('work_start, half_day_hours, late_grace_minutes')
+    .eq('id', 1)
+    .maybeSingle();
 
-function nowTime(): string {
-  const now = new Date();
-  return `${String(now.getHours()).padStart(2, '0')}:${String(
-    now.getMinutes()
-  ).padStart(2, '0')}`;
+  const row = data as {
+    work_start: string | null;
+    half_day_hours: number | null;
+    late_grace_minutes: number | null;
+  } | null;
+
+  return {
+    work_start: row?.work_start || DEFAULT_WORK_START,
+    half_day_hours: row?.half_day_hours ?? DEFAULT_HALF_DAY_HOURS,
+    late_grace_minutes: row?.late_grace_minutes ?? DEFAULT_LATE_GRACE_MINUTES,
+  };
 }
 
 // ============ EMPLOYEE: CHECK IN ============
@@ -73,7 +73,6 @@ export async function checkIn() {
   const today = todayStr();
   const now = nowTime();
 
-  // Check if on approved leave today
   const { data: onLeave } = await adminClient
     .from('leaves')
     .select('id')
@@ -85,12 +84,9 @@ export async function checkIn() {
     .maybeSingle();
 
   if (onLeave) {
-    throw new Error(
-      'Aaj tumhari approved leave hai, check-in ki zaroorat nahi'
-    );
+    throw new Error('Aaj tumhari approved leave hai, check-in ki zaroorat nahi');
   }
 
-  // Check existing
   const { data: existing } = await adminClient
     .from('attendance')
     .select('*')
@@ -98,28 +94,28 @@ export async function checkIn() {
     .eq('date', today)
     .maybeSingle();
 
-  if (existing?.check_in) {
-    // Return info instead of throwing 500
+  const existingRow = existing as {
+    id: string;
+    check_in: string | null;
+    check_out: string | null;
+  } | null;
+
+  if (existingRow?.check_in) {
     return {
       success: false,
       alreadyCheckedIn: true,
-      time: existing.check_in.slice(0, 5),
-      message: `Aaj already ${existing.check_in.slice(
-        0,
-        5
-      )} pe check-in kar chuke ho`,
+      time: String(existingRow.check_in).slice(0, 5),
+      message: `Aaj already ${String(existingRow.check_in).slice(0, 5)} pe check-in kar chuke ho`,
     };
   }
 
-  // Get work start time
-  const { data: settings } = await adminClient
-    .from('company_settings')
-    .select('work_start')
-    .eq('id', 1)
-    .maybeSingle();
+  const settings = await getSettings(adminClient);
 
-  const workStart = settings?.work_start || '09:30';
-  const late = now > workStart.slice(0, 5);
+  const [wsH, wsM] = String(settings.work_start).slice(0, 5).split(':').map(Number);
+  const [nH, nM] = now.split(':').map(Number);
+  const nowMin = nH * 60 + nM;
+  const lateThresholdMin = wsH * 60 + wsM + settings.late_grace_minutes;
+  const late = nowMin > lateThresholdMin;
 
   const payload = {
     employee_id: profile.id,
@@ -130,11 +126,11 @@ export async function checkIn() {
     marked_by: 'self' as const,
   };
 
-  if (existing) {
+  if (existingRow) {
     const { error } = await adminClient
       .from('attendance')
       .update(payload)
-      .eq('id', existing.id);
+      .eq('id', existingRow.id);
     if (error) throw new Error(error.message);
   } else {
     const { error } = await adminClient.from('attendance').insert(payload);
@@ -161,25 +157,29 @@ export async function checkOut() {
     .eq('date', today)
     .maybeSingle();
 
-  if (!existing?.check_in) throw new Error('Pehle check-in karo');
+  const existingRow = existing as {
+    id: string;
+    check_in: string | null;
+    check_out: string | null;
+  } | null;
 
-  if (existing.check_out) {
+  if (!existingRow?.check_in) throw new Error('Pehle check-in karo');
+
+  if (existingRow.check_out) {
     return {
       success: false,
       alreadyCheckedOut: true,
-      time: existing.check_out.slice(0, 5),
-      message: `Aaj already ${existing.check_out.slice(
-        0,
-        5
-      )} pe check-out kar chuke ho`,
+      time: String(existingRow.check_out).slice(0, 5),
+      message: `Aaj already ${String(existingRow.check_out).slice(0, 5)} pe check-out kar chuke ho`,
     };
   }
 
-  // Calculate hours
-  const [h1, m1] = existing.check_in.split(':').map(Number);
+  const settings = await getSettings(adminClient);
+
+  const [h1, m1] = String(existingRow.check_in).slice(0, 5).split(':').map(Number);
   const [h2, m2] = now.split(':').map(Number);
   const hours = (h2 * 60 + m2 - (h1 * 60 + m1)) / 60;
-  const short_day = hours < 4;
+  const short_day = hours < settings.half_day_hours;
 
   const { error } = await adminClient
     .from('attendance')
@@ -188,7 +188,7 @@ export async function checkOut() {
       hours: Math.round(hours * 100) / 100,
       short_day,
     })
-    .eq('id', existing.id);
+    .eq('id', existingRow.id);
 
   if (error) throw new Error(error.message);
 
@@ -214,32 +214,44 @@ export async function getMyTodayAttendance() {
   return data;
 }
 
-// ============ ADMIN: LIST ATTENDANCE BY DATE ============
+// ============ ADMIN: LIST BY DATE ============
 export async function getAttendanceByDate(date: string) {
   await requireAdmin();
-
   const adminClient = getAdminClient();
 
-  const { data: employees } = await adminClient
-    .from('profiles')
-    .select('id, name, username, dept, designation, role, is_active')
-    .eq('is_active', true)
-    .order('name');
+  const [empRes, attRes] = await Promise.all([
+    adminClient
+      .from('profiles')
+      .select('id, name, username, dept, designation, role, is_active')
+      .eq('is_active', true)
+      .order('name'),
+    adminClient.from('attendance').select('*').eq('date', date),
+  ]);
 
-  const { data: attendance } = await adminClient
-    .from('attendance')
-    .select('*')
-    .eq('date', date);
+  const employees = (empRes.data || []) as Array<{
+    id: string;
+    name: string;
+    username: string;
+    dept: string | null;
+    designation: string | null;
+    role: string;
+    is_active: boolean;
+  }>;
 
-  const attMap = new Map((attendance || []).map((a) => [a.employee_id, a]));
+  const attendance = (attRes.data || []) as Array<{
+    employee_id: string;
+    [key: string]: unknown;
+  }>;
 
-  return (employees || []).map((emp) => ({
+  const attMap = new Map(attendance.map((a) => [a.employee_id, a]));
+
+  return employees.map((emp) => ({
     employee: emp,
     attendance: attMap.get(emp.id) || null,
   }));
 }
 
-// ============ ADMIN: SET / OVERRIDE ATTENDANCE ============
+// ============ ADMIN: SET / OVERRIDE ============
 export async function adminSetAttendance(
   employeeId: string,
   date: string,
@@ -252,6 +264,7 @@ export async function adminSetAttendance(
 ) {
   await requireAdmin();
   const adminClient = getAdminClient();
+  const settings = await getSettings(adminClient);
 
   let hours = 0;
   let short_day = false;
@@ -259,7 +272,7 @@ export async function adminSetAttendance(
     const [h1, m1] = data.check_in.split(':').map(Number);
     const [h2, m2] = data.check_out.split(':').map(Number);
     hours = Math.max(0, (h2 * 60 + m2 - (h1 * 60 + m1)) / 60);
-    short_day = hours < 4;
+    short_day = hours < settings.half_day_hours;
     hours = Math.round(hours * 100) / 100;
   }
 
@@ -282,11 +295,13 @@ export async function adminSetAttendance(
     .eq('date', date)
     .maybeSingle();
 
-  if (existing) {
+  const existingRow = existing as { id: string } | null;
+
+  if (existingRow) {
     const { error } = await adminClient
       .from('attendance')
       .update(payload)
-      .eq('id', existing.id);
+      .eq('id', existingRow.id);
     if (error) throw new Error(error.message);
   } else {
     const { error } = await adminClient.from('attendance').insert(payload);
@@ -295,23 +310,19 @@ export async function adminSetAttendance(
 
   revalidatePath('/attendance');
   revalidatePath('/dashboard');
-
   return { success: true };
 }
 
-// ============ ADMIN: CLEAR ATTENDANCE ============
+// ============ ADMIN: CLEAR ============
 export async function adminClearAttendance(employeeId: string, date: string) {
   await requireAdmin();
   const adminClient = getAdminClient();
-
   const { error } = await adminClient
     .from('attendance')
     .delete()
     .eq('employee_id', employeeId)
     .eq('date', date);
-
   if (error) throw new Error(error.message);
-
   revalidatePath('/attendance');
   revalidatePath('/dashboard');
   return { success: true };
@@ -328,16 +339,19 @@ export async function adminMarkAllPresent(date: string) {
     .eq('is_active', true)
     .eq('role', 'employee');
 
-  if (!employees) return { success: true, count: 0 };
+  const empList = (employees || []) as Array<{ id: string }>;
+  if (!empList.length) return { success: true, count: 0 };
 
   const { data: existing } = await adminClient
     .from('attendance')
     .select('employee_id')
     .eq('date', date);
 
-  const existingIds = new Set((existing || []).map((a) => a.employee_id));
+  const existingIds = new Set(
+    ((existing || []) as Array<{ employee_id: string }>).map((a) => a.employee_id)
+  );
 
-  const inserts = employees
+  const inserts = empList
     .filter((e) => !existingIds.has(e.id))
     .map((e) => ({
       employee_id: e.id,
@@ -357,27 +371,21 @@ export async function adminMarkAllPresent(date: string) {
   return { success: true, count: inserts.length };
 }
 
-// ============ STATS FOR DASHBOARD ============
+// ============ STATS ============
 export async function getAttendanceStats(date: string) {
   await requireAdmin();
   const adminClient = getAdminClient();
 
-  const { data: employees } = await adminClient
-    .from('profiles')
-    .select('id')
-    .eq('is_active', true);
+  const [empRes, attRes] = await Promise.all([
+    adminClient.from('profiles').select('id').eq('is_active', true),
+    adminClient.from('attendance').select('status').eq('date', date),
+  ]);
 
-  const { data: attendance } = await adminClient
-    .from('attendance')
-    .select('status')
-    .eq('date', date);
-
-  const total = employees?.length || 0;
-  const present = (attendance || []).filter(
-    (a) => a.status === 'Present'
-  ).length;
-  const half = (attendance || []).filter((a) => a.status === 'Half').length;
-  const leave = (attendance || []).filter((a) => a.status === 'Leave').length;
+  const total = (empRes.data || []).length;
+  const att = (attRes.data || []) as Array<{ status: string }>;
+  const present = att.filter((a) => a.status === 'Present').length;
+  const half = att.filter((a) => a.status === 'Half').length;
+  const leave = att.filter((a) => a.status === 'Leave').length;
   const absent = total - present - half - leave;
 
   return { total, present, half, leave, absent };

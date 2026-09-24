@@ -1,9 +1,13 @@
-export type UserRole = 'admin' | 'employee';
+// ============================================
+// ROSTER PRO — Database Types
+// ============================================
 
+export type UserRole = 'admin' | 'employee';
 export type AttendanceStatus = 'Present' | 'Half' | 'Leave' | 'Absent';
 export type LeaveStatus = 'Pending' | 'Approved' | 'Rejected';
 export type LeaveType = 'Full' | 'Half';
 export type AssetStatus = 'Available' | 'Assigned' | 'Maintenance' | 'Retired';
+export type MarkedBy = 'self' | 'admin';
 
 export interface Profile {
   id: string;
@@ -31,7 +35,7 @@ export interface Attendance {
   late: boolean;
   short_day: boolean;
   hours: number;
-  marked_by: 'self' | 'admin';
+  marked_by: MarkedBy;
   notes: string | null;
   created_at: string;
   updated_at: string;
@@ -65,4 +69,26 @@ export interface Asset {
   notes: string | null;
   created_at: string;
   updated_at: string;
+}
+
+export interface CompanySettings {
+  id: number;
+  company_name: string;
+  admin_email: string | null;
+  work_start: string;
+  work_end: string;
+  half_day_hours: number;
+  full_day_hours: number;
+  late_grace_minutes: number;
+  updated_at: string;
+}
+
+export interface Mail {
+  id: string;
+  from_user: string | null;
+  from_name: string | null;
+  to_email: string;
+  subject: string;
+  body: string;
+  sent_at: string;
 }

@@ -2,13 +2,15 @@
 
 import { useState, useEffect } from 'react';
 import { toast } from 'sonner';
+import { useCompanySettings } from '@/lib/hooks/useCompanySettings';
 import { todayStr, fmtDate } from '@/lib/utils/date';
 import { getAttendanceStats } from '@/lib/actions/attendance';
-import { getLeaveStats } from '@/lib/actions/leaves';
+import { getLeaveStats, getAllLeaves } from '@/lib/actions/leaves';
 import { getAssetStats } from '@/lib/actions/assets';
-import { getAllLeaves } from '@/lib/actions/leaves';
+import { APP_NAME } from '@/lib/constants';
 
 export default function AdminDashboard() {
+  const { settings } = useCompanySettings();
   const [stats, setStats] = useState({
     attendance: { total: 0, present: 0, absent: 0, half: 0, leave: 0 },
     leaves: { pending: 0, approved: 0, rejected: 0, totalDays: 0 },
@@ -17,6 +19,7 @@ export default function AdminDashboard() {
   const [recentLeaves, setRecentLeaves] = useState<unknown[]>([]);
   const [loading, setLoading] = useState(true);
   const today = todayStr();
+  const brandName = settings?.company_name || APP_NAME;
 
   useEffect(() => {
     (async () => {
@@ -43,7 +46,7 @@ export default function AdminDashboard() {
     <>
       <div className="page-head">
         <div>
-          <h1>Dashboard</h1>
+          <h1>{brandName} Dashboard</h1>
           <p>
             {new Date().toLocaleDateString('en-IN', {
               weekday: 'long',

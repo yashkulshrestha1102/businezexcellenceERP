@@ -3,66 +3,36 @@
 import { createClient } from '@/lib/supabase/server';
 import { createClient as createAdminClient } from '@supabase/supabase-js';
 import { revalidatePath } from 'next/cache';
+import { MIN_PASSWORD_LENGTH } from '@/lib/constants';
 
-// Admin client — service_role key use karta hai (RLS bypass)
 function getAdminClient() {
-  const url = process.env.NEXT_PUBLIC_SUPABASE_URL!;
-  const serviceKey = process.env.SUPABASE_SERVICE_ROLE_KEY!;
+  const url = process.env.NEXT_PUBLIC_SUPABASE_URL;
+  const serviceKey = process.env.SUPABASE_SERVICE_ROLE_KEY;
+
+  if (!url) throw new Error('Missing NEXT_PUBLIC_SUPABASE_URL');
+  if (!serviceKey) throw new Error('Missing SUPABASE_SERVICE_ROLE_KEY');
+
   return createAdminClient(url, serviceKey, {
-    auth: {
-      autoRefreshToken: false,
-      persistSession: false,
-    },
+    auth: { autoRefreshToken: false, persistSession: false },
   });
 }
 
-// Helper: Get current user's role using admin client (bypasses RLS)
 async function requireAdmin() {
   const supabase = await createClient();
-  const { data: { user }, error: authError } = await supabase.auth.getUser();
-
-  console.log('🔍 DEBUG - auth user:', {
-    id: user?.id,
-    email: user?.email,
-    authError: authError?.message,
-  });
-
+  const { data: { user } } = await supabase.auth.getUser();
   if (!user) throw new Error('Not authenticated');
 
   const adminClient = getAdminClient();
-
-  // Fetch profile using admin client (RLS bypass)
-  const { data: profile, error: profileError } = await adminClient
+  const { data: profile, error } = await adminClient
     .from('profiles')
     .select('id, role, is_active, name, email')
     .eq('id', user.id)
-    .maybeSingle();  // ← maybeSingle instead of single
+    .maybeSingle();
 
-  console.log('🔍 DEBUG - profile fetch:', {
-    profile,
-    profileError: profileError?.message,
-    userId: user.id,
-  });
-
-  if (profileError) {
-    throw new Error('Profile fetch failed: ' + profileError.message);
-  }
-
-  if (!profile) {
-    throw new Error(
-      'No profile found for your account. Please check Supabase profiles table.'
-    );
-  }
-
-  if (profile.role !== 'admin') {
-    throw new Error(
-      `Only admin can do this. Your role is: "${profile.role}"`
-    );
-  }
-
-  if (!profile.is_active) {
-    throw new Error('Your account is inactive');
-  }
+  if (error) throw new Error('Profile fetch failed: ' + error.message);
+  if (!profile) throw new Error('No profile found for your account.');
+  if (profile.role !== 'admin') throw new Error(`Admin only. Your role: "${profile.role}"`);
+  if (!profile.is_active) throw new Error('Your account is inactive');
 
   return { user, adminClient };
 }
@@ -82,29 +52,29 @@ interface EmployeeInput {
 
 // ============ LIST ============
 export async function getEmployees() {
-  const supabase = await createClient();
-  const { data, error } = await supabase
+  await requireAdmin();
+  const adminClient = getAdminClient();
+
+  const { data, error } = await adminClient
     .from('profiles')
     .select('*')
     .order('created_at', { ascending: false });
 
   if (error) throw new Error(error.message);
-  return data;
+  return data || [];
 }
 
 // ============ CREATE ============
 export async function createEmployee(input: EmployeeInput) {
   const { adminClient } = await requireAdmin();
 
-  // Validate
   if (!input.name || !input.username || !input.email || !input.password) {
     throw new Error('Name, username, email, and password are required');
   }
-  if (input.password.length < 6) {
-    throw new Error('Password must be at least 6 characters');
+  if (input.password.length < MIN_PASSWORD_LENGTH) {
+    throw new Error(`Password must be at least ${MIN_PASSWORD_LENGTH} characters`);
   }
 
-  // Create auth user
   const { data: authData, error: authError } = await adminClient.auth.admin.createUser({
     email: input.email.trim().toLowerCase(),
     password: input.password,
@@ -119,7 +89,6 @@ export async function createEmployee(input: EmployeeInput) {
   if (authError) throw new Error(authError.message);
   if (!authData.user) throw new Error('Failed to create user');
 
-  // Update profile with extra fields
   const { error: updateError } = await adminClient
     .from('profiles')
     .update({
@@ -150,7 +119,6 @@ export async function createEmployee(input: EmployeeInput) {
 export async function updateEmployee(id: string, input: Partial<EmployeeInput>) {
   const { user, adminClient } = await requireAdmin();
 
-  // Prevent removing own admin role
   if (id === user.id && input.role && input.role !== 'admin') {
     throw new Error('You cannot remove your own admin role');
   }
@@ -166,15 +134,13 @@ export async function updateEmployee(id: string, input: Partial<EmployeeInput>) 
   if (input.join_date) updateData.join_date = input.join_date;
   if (input.role) updateData.role = input.role;
 
-  // If password provided, update auth password
-  if (input.password && input.password.length >= 6) {
+  if (input.password && input.password.length >= MIN_PASSWORD_LENGTH) {
     const { error: pwError } = await adminClient.auth.admin.updateUserById(id, {
       password: input.password,
     });
     if (pwError) throw new Error(pwError.message);
   }
 
-  // If email changed, update auth email
   if (input.email) {
     const { error: emailError } = await adminClient.auth.admin.updateUserById(id, {
       email: input.email.trim().toLowerCase(),
@@ -183,7 +149,6 @@ export async function updateEmployee(id: string, input: Partial<EmployeeInput>) 
     if (emailError) throw new Error(emailError.message);
   }
 
-  // Update profile
   const { error } = await adminClient
     .from('profiles')
     .update(updateData)
@@ -200,9 +165,7 @@ export async function updateEmployee(id: string, input: Partial<EmployeeInput>) 
 export async function deleteEmployee(id: string) {
   const { user, adminClient } = await requireAdmin();
 
-  if (user.id === id) {
-    throw new Error('You cannot delete your own account');
-  }
+  if (user.id === id) throw new Error('You cannot delete your own account');
 
   const { error } = await adminClient.auth.admin.deleteUser(id);
   if (error) throw new Error(error.message);
@@ -214,12 +177,14 @@ export async function deleteEmployee(id: string) {
 
 // ============ GET SINGLE ============
 export async function getEmployee(id: string) {
-  const supabase = await createClient();
-  const { data, error } = await supabase
+  await requireAdmin();
+  const adminClient = getAdminClient();
+
+  const { data, error } = await adminClient
     .from('profiles')
     .select('*')
     .eq('id', id)
-    .single();
+    .maybeSingle();
 
   if (error) throw new Error(error.message);
   return data;

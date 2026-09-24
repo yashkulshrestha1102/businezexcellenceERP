@@ -7,14 +7,20 @@ import {
   updateCompanySettings,
 } from '@/lib/actions/mails';
 import { useAuth } from '@/lib/hooks/useAuth';
+import { useCompanySettings } from '@/lib/hooks/useCompanySettings';
 import { createClient } from '@/lib/supabase/client';
 
 export default function SettingsPage() {
   const { profile } = useAuth();
+  const { load: reloadCompanySettings } = useCompanySettings();
   const [settings, setSettings] = useState({
     company_name: '',
     admin_email: '',
     work_start: '09:30',
+    work_end: '18:30',
+    half_day_hours: 4,
+    full_day_hours: 8,
+    late_grace_minutes: 15,
   });
   const [pw, setPw] = useState({ current: '', newPassword: '' });
   const [loading, setLoading] = useState(true);
@@ -27,6 +33,10 @@ export default function SettingsPage() {
           company_name: s.company_name || 'Roster Pro',
           admin_email: s.admin_email || '',
           work_start: (s.work_start || '09:30').slice(0, 5),
+          work_end: (s.work_end || '18:30').slice(0, 5),
+          half_day_hours: Number(s.half_day_hours) || 4,
+          full_day_hours: Number(s.full_day_hours) || 8,
+          late_grace_minutes: Number(s.late_grace_minutes) || 15,
         });
       })
       .catch((err) => toast.error(err.message))
@@ -37,7 +47,8 @@ export default function SettingsPage() {
     setSaving(true);
     try {
       await updateCompanySettings(settings);
-      toast.success('Settings save');
+      await reloadCompanySettings(true);
+      toast.success('Settings save ho gayi');
     } catch (err) {
       toast.error((err as Error).message);
     } finally {
@@ -75,7 +86,7 @@ export default function SettingsPage() {
       <div className="page-head">
         <div>
           <h1>Settings</h1>
-          <p>Company details aur admin password</p>
+          <p>Company details, work hours, aur admin password</p>
         </div>
       </div>
 
@@ -104,13 +115,68 @@ export default function SettingsPage() {
                 }
               />
             </div>
+            <div className="grid2">
+              <div className="field">
+                <label>Work Start Time</label>
+                <input
+                  type="time"
+                  value={settings.work_start}
+                  onChange={(e) =>
+                    setSettings({ ...settings, work_start: e.target.value })
+                  }
+                />
+              </div>
+              <div className="field">
+                <label>Work End Time</label>
+                <input
+                  type="time"
+                  value={settings.work_end}
+                  onChange={(e) =>
+                    setSettings({ ...settings, work_end: e.target.value })
+                  }
+                />
+              </div>
+            </div>
+            <div className="grid2">
+              <div className="field">
+                <label>Half Day Hours</label>
+                <input
+                  type="number"
+                  step="0.5"
+                  value={settings.half_day_hours}
+                  onChange={(e) =>
+                    setSettings({
+                      ...settings,
+                      half_day_hours: Number(e.target.value),
+                    })
+                  }
+                />
+              </div>
+              <div className="field">
+                <label>Full Day Hours</label>
+                <input
+                  type="number"
+                  step="0.5"
+                  value={settings.full_day_hours}
+                  onChange={(e) =>
+                    setSettings({
+                      ...settings,
+                      full_day_hours: Number(e.target.value),
+                    })
+                  }
+                />
+              </div>
+            </div>
             <div className="field">
-              <label>Work Start Time (late marking ke liye)</label>
+              <label>Late Grace Minutes (late marking ke liye)</label>
               <input
-                type="time"
-                value={settings.work_start}
+                type="number"
+                value={settings.late_grace_minutes}
                 onChange={(e) =>
-                  setSettings({ ...settings, work_start: e.target.value })
+                  setSettings({
+                    ...settings,
+                    late_grace_minutes: Number(e.target.value),
+                  })
                 }
               />
             </div>
@@ -120,7 +186,7 @@ export default function SettingsPage() {
               onClick={handleSaveSettings}
               disabled={saving}
             >
-              {saving ? 'Saving...' : 'Save'}
+              {saving ? 'Saving...' : 'Save Settings'}
             </button>
           </div>
         </div>

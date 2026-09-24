@@ -1,20 +1,19 @@
 import type { Metadata, Viewport } from 'next';
 import { Toaster } from 'sonner';
+import { APP_NAME, APP_DESCRIPTION, APP_URL } from '@/lib/constants';
 import './globals.css';
 
 export const metadata: Metadata = {
-  metadataBase: new URL(
-    process.env.NEXT_PUBLIC_SITE_URL || 'http://localhost:3000'
-  ),
-  title: 'Roster Pro — Employee & Attendance Management',
+  metadataBase: new URL(APP_URL),
+  title: `${APP_NAME} — ${APP_DESCRIPTION}`,
   description: 'Reliable employee and attendance management system',
-  applicationName: 'Roster Pro',
-  authors: [{ name: 'Roster Pro' }],
+  applicationName: APP_NAME,
+  authors: [{ name: APP_NAME }],
   manifest: '/manifest.webmanifest',
   appleWebApp: {
     capable: true,
     statusBarStyle: 'default',
-    title: 'Roster Pro',
+    title: APP_NAME,
   },
   icons: {
     icon: [
@@ -31,16 +30,16 @@ export const metadata: Metadata = {
     shortcut: '/favicon.ico',
   },
   openGraph: {
-    title: 'Roster Pro — Employee & Attendance Management',
+    title: `${APP_NAME} — ${APP_DESCRIPTION}`,
     description: 'Reliable employee and attendance management system',
-    siteName: 'Roster Pro',
+    siteName: APP_NAME,
     type: 'website',
     images: [{ url: '/icon-512.png', width: 512, height: 512 }],
   },
   twitter: {
     card: 'summary',
-    title: 'Roster Pro',
-    description: 'Employee & attendance management system',
+    title: APP_NAME,
+    description: APP_DESCRIPTION,
     images: ['/icon-512.png'],
   },
 };
@@ -55,9 +54,7 @@ export const viewport: Viewport = {
 
 export default function RootLayout({
   children,
-}: Readonly<{
-  children: React.ReactNode;
-}>) {
+}: Readonly<{ children: React.ReactNode }>) {
   return (
     <html lang="en" suppressHydrationWarning>
       <body>

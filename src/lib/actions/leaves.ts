@@ -3,13 +3,18 @@
 import { createClient } from '@/lib/supabase/server';
 import { createClient as createAdminClient } from '@supabase/supabase-js';
 import { revalidatePath } from 'next/cache';
+import { HALF_LEAVE_DAYS } from '@/lib/constants';
 
 function getAdminClient() {
-  return createAdminClient(
-    process.env.NEXT_PUBLIC_SUPABASE_URL!,
-    process.env.SUPABASE_SERVICE_ROLE_KEY!,
-    { auth: { autoRefreshToken: false, persistSession: false } }
-  );
+  const url = process.env.NEXT_PUBLIC_SUPABASE_URL;
+  const serviceKey = process.env.SUPABASE_SERVICE_ROLE_KEY;
+
+  if (!url) throw new Error('Missing NEXT_PUBLIC_SUPABASE_URL');
+  if (!serviceKey) throw new Error('Missing SUPABASE_SERVICE_ROLE_KEY');
+
+  return createAdminClient(url, serviceKey, {
+    auth: { autoRefreshToken: false, persistSession: false },
+  });
 }
 
 async function requireAuth() {
@@ -18,13 +23,15 @@ async function requireAuth() {
   if (!user) throw new Error('Not authenticated');
 
   const adminClient = getAdminClient();
-  const { data: profile } = await adminClient
+  const { data: profile, error } = await adminClient
     .from('profiles')
     .select('id, role, name, username')
     .eq('id', user.id)
-    .single();
+    .maybeSingle();
 
+  if (error) throw new Error('Profile fetch failed: ' + error.message);
   if (!profile) throw new Error('Profile not found');
+
   return { user, profile, adminClient };
 }
 
@@ -34,9 +41,8 @@ async function requireAdmin() {
   return ctx;
 }
 
-// Helper: calculate leave days
 function calculateDays(from: string, to: string, type: 'Full' | 'Half'): number {
-  if (type === 'Half') return 0.5;
+  if (type === 'Half') return HALF_LEAVE_DAYS;
   const d1 = new Date(from + 'T00:00:00');
   const d2 = new Date(to + 'T00:00:00');
   const diff = Math.round((d2.getTime() - d1.getTime()) / 86400000) + 1;
@@ -87,7 +93,7 @@ export async function applyLeave(input: {
   return data;
 }
 
-// ============ EMPLOYEE: CANCEL PENDING LEAVE ============
+// ============ EMPLOYEE: CANCEL ============
 export async function cancelMyLeave(id: string) {
   const { profile, adminClient } = await requireAuth();
 
@@ -95,7 +101,7 @@ export async function cancelMyLeave(id: string) {
     .from('leaves')
     .select('employee_id, status')
     .eq('id', id)
-    .single();
+    .maybeSingle();
 
   if (!leave) throw new Error('Leave not found');
   if (leave.employee_id !== profile.id) throw new Error('Not your leave');
@@ -106,7 +112,6 @@ export async function cancelMyLeave(id: string) {
 
   revalidatePath('/me/leave');
   revalidatePath('/leave');
-
   return { success: true };
 }
 
@@ -124,7 +129,7 @@ export async function getMyLeaves() {
   return data || [];
 }
 
-// ============ ADMIN: LIST ALL LEAVES ============
+// ============ ADMIN: ALL LEAVES ============
 export async function getAllLeaves(filterStatus?: string) {
   await requireAdmin();
   const adminClient = getAdminClient();
@@ -144,10 +149,7 @@ export async function getAllLeaves(filterStatus?: string) {
 }
 
 // ============ ADMIN: APPROVE / REJECT ============
-export async function reviewLeave(
-  id: string,
-  status: 'Approved' | 'Rejected'
-) {
+export async function reviewLeave(id: string, status: 'Approved' | 'Rejected') {
   const { profile: adminProfile, adminClient } = await requireAdmin();
 
   const { error } = await adminClient
@@ -161,16 +163,14 @@ export async function reviewLeave(
 
   if (error) throw new Error(error.message);
 
-  // Auto-mark attendance for approved FULL day leaves
   if (status === 'Approved') {
     const { data: leave } = await adminClient
       .from('leaves')
       .select('employee_id, from_date, to_date, type')
       .eq('id', id)
-      .single();
+      .maybeSingle();
 
     if (leave && leave.type === 'Full') {
-      // Loop through each date in range
       const start = new Date(leave.from_date + 'T00:00:00');
       const end = new Date(leave.to_date + 'T00:00:00');
       const dates: string[] = [];
@@ -211,24 +211,21 @@ export async function reviewLeave(
   revalidatePath('/me/leave');
   revalidatePath('/attendance');
   revalidatePath('/dashboard');
-
   return { success: true };
 }
 
-// ============ ADMIN: DELETE LEAVE ============
+// ============ ADMIN: DELETE ============
 export async function deleteLeave(id: string) {
   await requireAdmin();
   const adminClient = getAdminClient();
-
   const { error } = await adminClient.from('leaves').delete().eq('id', id);
   if (error) throw new Error(error.message);
-
   revalidatePath('/leave');
   revalidatePath('/me/leave');
   return { success: true };
 }
 
-// ============ ADMIN: MANUAL LOG LEAVE ============
+// ============ ADMIN: LOG LEAVE ============
 export async function adminCreateLeave(input: {
   employee_id: string;
   from_date: string;
@@ -254,10 +251,8 @@ export async function adminCreateLeave(input: {
   });
 
   if (error) throw new Error(error.message);
-
   revalidatePath('/leave');
   revalidatePath('/dashboard');
-
   return { success: true };
 }
 
@@ -266,9 +261,7 @@ export async function getLeaveStats() {
   await requireAdmin();
   const adminClient = getAdminClient();
 
-  const { data: all } = await adminClient
-    .from('leaves')
-    .select('status, days');
+  const { data: all } = await adminClient.from('leaves').select('status, days');
 
   const pending = (all || []).filter((l) => l.status === 'Pending').length;
   const approved = (all || []).filter((l) => l.status === 'Approved').length;
@@ -280,7 +273,7 @@ export async function getLeaveStats() {
   return { pending, approved, rejected, totalDays };
 }
 
-// ============ LEAVE BALANCE FOR EMPLOYEE ============
+// ============ MY LEAVE BALANCE ============
 export async function getMyLeaveBalance() {
   const { profile, adminClient } = await requireAuth();
 

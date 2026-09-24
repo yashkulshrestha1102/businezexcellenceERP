@@ -3,48 +3,58 @@
 import Link from 'next/link';
 import { usePathname, useRouter } from 'next/navigation';
 import { useAuth } from '@/lib/hooks/useAuth';
+import { useCompanySettings } from '@/lib/hooks/useCompanySettings';
 import { createClient } from '@/lib/supabase/client';
 import { toast } from 'sonner';
 import { initials } from '@/lib/utils/date';
+import { APP_NAME } from '@/lib/constants';
 
 const ADMIN_NAV = [
-  { section: 'Main', items: [
-    { label: 'Dashboard', href: '/dashboard', icon: '📊' },
-  ]},
-  { section: 'Manage', items: [
-    { label: 'Employees', href: '/employees', icon: '👥' },
-    { label: 'Attendance', href: '/attendance', icon: '🕒' },
-    { label: 'Leave', href: '/leave', icon: '🌴' },
-    { label: 'Assets', href: '/assets', icon: '💻' },
-  ]},
-  { section: 'Tools', items: [
-    { label: 'Mail', href: '/mail', icon: '✉️' },
-    { label: 'Reports', href: '/reports', icon: '📈' },
-    { label: 'Settings', href: '/settings', icon: '⚙️' },
-  ]},
+  { section: 'Main', items: [{ label: 'Dashboard', href: '/dashboard', icon: '📊' }] },
+  {
+    section: 'Manage',
+    items: [
+      { label: 'Employees', href: '/employees', icon: '👥' },
+      { label: 'Attendance', href: '/attendance', icon: '🕒' },
+      { label: 'Leave', href: '/leave', icon: '🌴' },
+      { label: 'Assets', href: '/assets', icon: '💻' },
+    ],
+  },
+  {
+    section: 'Tools',
+    items: [
+      { label: 'Mail', href: '/mail', icon: '✉️' },
+      { label: 'Reports', href: '/reports', icon: '📈' },
+      { label: 'Settings', href: '/settings', icon: '⚙️' },
+    ],
+  },
 ];
 
 const EMPLOYEE_NAV = [
-  { section: 'Main', items: [
-    { label: 'My Dashboard', href: '/dashboard', icon: '🏠' },
-  ]},
-  { section: 'Self Service', items: [
-    { label: 'My Attendance', href: '/me/attendance', icon: '🕒' },
-    { label: 'My Leave', href: '/me/leave', icon: '🌴' },
-    { label: 'My Assets', href: '/me/assets', icon: '💻' },
-    { label: 'My Profile', href: '/me/profile', icon: '👤' },
-  ]},
-  { section: 'Tools', items: [
-    { label: 'Mail Admin', href: '/me/mail', icon: '✉️' },
-  ]},
+  { section: 'Main', items: [{ label: 'My Dashboard', href: '/dashboard', icon: '🏠' }] },
+  {
+    section: 'Self Service',
+    items: [
+      { label: 'My Attendance', href: '/me/attendance', icon: '🕒' },
+      { label: 'My Leave', href: '/me/leave', icon: '🌴' },
+      { label: 'My Assets', href: '/me/assets', icon: '💻' },
+      { label: 'My Profile', href: '/me/profile', icon: '👤' },
+    ],
+  },
+  {
+    section: 'Tools',
+    items: [{ label: 'Mail Admin', href: '/me/mail', icon: '✉️' }],
+  },
 ];
 
 export default function Sidebar() {
   const pathname = usePathname();
   const router = useRouter();
   const { profile } = useAuth();
+  const { settings } = useCompanySettings();
 
   const nav = profile?.role === 'admin' ? ADMIN_NAV : EMPLOYEE_NAV;
+  const brandName = settings?.company_name || APP_NAME;
 
   async function handleLogout() {
     const supabase = createClient();
@@ -59,7 +69,7 @@ export default function Sidebar() {
       <div className="brand">
         <div className="brand-icon">📋</div>
         <div className="brand-text">
-          <h2>Roster Pro</h2>
+          <h2>{brandName}</h2>
           <span>{profile?.role === 'admin' ? 'Admin' : 'Employee'}</span>
         </div>
       </div>
@@ -69,7 +79,8 @@ export default function Sidebar() {
           <div key={group.section}>
             <div className="nav-label">{group.section}</div>
             {group.items.map((item) => {
-              const isActive = pathname === item.href || 
+              const isActive =
+                pathname === item.href ||
                 (item.href !== '/dashboard' && pathname.startsWith(item.href));
               return (
                 <Link

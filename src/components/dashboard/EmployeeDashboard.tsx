@@ -3,7 +3,8 @@
 import { useState, useEffect, useCallback } from 'react';
 import { toast } from 'sonner';
 import { useAuth } from '@/lib/hooks/useAuth';
-import { todayStr, fmtDate, initials } from '@/lib/utils/date';
+import { useCompanySettings } from '@/lib/hooks/useCompanySettings';
+import { todayStr, fmtDate, fmtTime, initials } from '@/lib/utils/date';
 import {
   checkIn,
   checkOut,
@@ -11,6 +12,7 @@ import {
 } from '@/lib/actions/attendance';
 import { getMyLeaveBalance } from '@/lib/actions/leaves';
 import { getMyAssets } from '@/lib/actions/assets';
+import { APP_NAME } from '@/lib/constants';
 
 interface CheckInResult {
   success: boolean;
@@ -31,6 +33,8 @@ interface CheckOutResult {
 
 export default function EmployeeDashboard() {
   const { profile } = useAuth();
+  const { settings } = useCompanySettings();
+
   const [today, setToday] = useState<{
     check_in: string | null;
     check_out: string | null;
@@ -113,20 +117,16 @@ export default function EmployeeDashboard() {
 
   const hasCheckIn = !!today?.check_in;
   const hasCheckOut = !!today?.check_out;
+  const brandName = settings?.company_name || APP_NAME;
 
   let headline: string;
   let sub: string;
   if (hasCheckIn && hasCheckOut) {
     headline = 'Aaj ka kaam complete ✅';
-    sub = `${fmtDate(todayStr())} • In: ${today!.check_in!.slice(
-      0,
-      5
-    )} • Out: ${today!.check_out!.slice(0, 5)}`;
+    sub = `${fmtDate(todayStr())} • In: ${fmtTime(today!.check_in)} • Out: ${fmtTime(today!.check_out)}`;
   } else if (hasCheckIn) {
     headline = 'Aaj present ho ✅';
-    sub = `${fmtDate(todayStr())} • Check In: ${today!.check_in!.slice(0, 5)}${
-      today!.late ? ' (late)' : ''
-    }`;
+    sub = `${fmtDate(todayStr())} • Check In: ${fmtTime(today!.check_in)}${today!.late ? ' (late)' : ''}`;
   } else {
     headline = 'Aaj ka attendance mark karo';
     sub = `${fmtDate(todayStr())} • Abhi tak check-in nahi kiya`;
@@ -138,7 +138,7 @@ export default function EmployeeDashboard() {
         <div>
           <h1>Namaste, {profile.name.split(' ')[0]} 👋</h1>
           <p>
-            {profile.designation || '—'} • {profile.dept || '—'}
+            {profile.designation || '—'} • {profile.dept || '—'} • {brandName}
           </p>
         </div>
       </div>
@@ -178,14 +178,11 @@ export default function EmployeeDashboard() {
           <div className="sub">assigned to you</div>
         </div>
         <div className="stat">
-          <div className="lbl">Role</div>
-          <div
-            className="val"
-            style={{ textTransform: 'capitalize', fontSize: 20 }}
-          >
-            {profile.role}
+          <div className="lbl">Work Hours</div>
+          <div className="val" style={{ fontSize: 20 }}>
+            {settings?.work_start?.slice(0, 5) || '—'} - {settings?.work_end?.slice(0, 5) || '—'}
           </div>
-          <div className="sub">{profile.dept || 'No dept'}</div>
+          <div className="sub">office timings</div>
         </div>
         <div className="stat">
           <div className="lbl">Username</div>
