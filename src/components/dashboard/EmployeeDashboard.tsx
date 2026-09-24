@@ -3,7 +3,7 @@
 import { useState, useEffect, useCallback } from 'react';
 import { toast } from 'sonner';
 import { useAuth } from '@/lib/hooks/useAuth';
-import { todayStr, nowTime, fmtDate, initials } from '@/lib/utils/date';
+import { todayStr, fmtDate, initials } from '@/lib/utils/date';
 import {
   checkIn,
   checkOut,
@@ -11,6 +11,23 @@ import {
 } from '@/lib/actions/attendance';
 import { getMyLeaveBalance } from '@/lib/actions/leaves';
 import { getMyAssets } from '@/lib/actions/assets';
+
+interface CheckInResult {
+  success: boolean;
+  time?: string;
+  late?: boolean;
+  alreadyCheckedIn?: boolean;
+  message?: string;
+}
+
+interface CheckOutResult {
+  success: boolean;
+  time?: string;
+  hours?: number;
+  short_day?: boolean;
+  alreadyCheckedOut?: boolean;
+  message?: string;
+}
 
 export default function EmployeeDashboard() {
   const { profile } = useAuth();
@@ -50,9 +67,18 @@ export default function EmployeeDashboard() {
   async function handleCheckIn() {
     setWorking(true);
     try {
-      const res = await checkIn();
+      const res = (await checkIn()) as CheckInResult;
+
+      if (res.alreadyCheckedIn) {
+        toast.info(res.message || 'Already checked in', { duration: 3000 });
+        load();
+        return;
+      }
+
       toast.success(
-        res.late ? `Check In — ${res.time} (late 😅)` : `Check In — ${res.time}`,
+        res.late
+          ? `Check In — ${res.time} (late 😅)`
+          : `Check In — ${res.time}`,
         { duration: 3000 }
       );
       load();
@@ -66,7 +92,14 @@ export default function EmployeeDashboard() {
   async function handleCheckOut() {
     setWorking(true);
     try {
-      const res = await checkOut();
+      const res = (await checkOut()) as CheckOutResult;
+
+      if (res.alreadyCheckedOut) {
+        toast.info(res.message || 'Already checked out', { duration: 3000 });
+        load();
+        return;
+      }
+
       toast.success(`Check Out — ${res.time} (${res.hours}h)`);
       load();
     } catch (err) {
@@ -85,10 +118,15 @@ export default function EmployeeDashboard() {
   let sub: string;
   if (hasCheckIn && hasCheckOut) {
     headline = 'Aaj ka kaam complete ✅';
-    sub = `${fmtDate(todayStr())} • In: ${today!.check_in!.slice(0, 5)} • Out: ${today!.check_out!.slice(0, 5)}`;
+    sub = `${fmtDate(todayStr())} • In: ${today!.check_in!.slice(
+      0,
+      5
+    )} • Out: ${today!.check_out!.slice(0, 5)}`;
   } else if (hasCheckIn) {
     headline = 'Aaj present ho ✅';
-    sub = `${fmtDate(todayStr())} • Check In: ${today!.check_in!.slice(0, 5)}${today!.late ? ' (late)' : ''}`;
+    sub = `${fmtDate(todayStr())} • Check In: ${today!.check_in!.slice(0, 5)}${
+      today!.late ? ' (late)' : ''
+    }`;
   } else {
     headline = 'Aaj ka attendance mark karo';
     sub = `${fmtDate(todayStr())} • Abhi tak check-in nahi kiya`;
@@ -141,7 +179,10 @@ export default function EmployeeDashboard() {
         </div>
         <div className="stat">
           <div className="lbl">Role</div>
-          <div className="val" style={{ textTransform: 'capitalize', fontSize: 20 }}>
+          <div
+            className="val"
+            style={{ textTransform: 'capitalize', fontSize: 20 }}
+          >
             {profile.role}
           </div>
           <div className="sub">{profile.dept || 'No dept'}</div>

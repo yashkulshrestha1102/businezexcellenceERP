@@ -5,26 +5,43 @@ import { createClient as createAdminClient } from '@supabase/supabase-js';
 import { revalidatePath } from 'next/cache';
 
 function getAdminClient() {
-  return createAdminClient(
-    process.env.NEXT_PUBLIC_SUPABASE_URL!,
-    process.env.SUPABASE_SERVICE_ROLE_KEY!,
-    { auth: { autoRefreshToken: false, persistSession: false } }
-  );
+  const url = process.env.NEXT_PUBLIC_SUPABASE_URL;
+  const serviceKey = process.env.SUPABASE_SERVICE_ROLE_KEY;
+
+  if (!url) {
+    console.error('❌ NEXT_PUBLIC_SUPABASE_URL is missing');
+    throw new Error('Server configuration error: missing Supabase URL');
+  }
+  if (!serviceKey) {
+    console.error('❌ SUPABASE_SERVICE_ROLE_KEY is missing');
+    throw new Error('Server configuration error: missing service role key');
+  }
+
+  return createAdminClient(url, serviceKey, {
+    auth: { autoRefreshToken: false, persistSession: false },
+  });
 }
 
 async function requireAuth() {
   const supabase = await createClient();
-  const { data: { user } } = await supabase.auth.getUser();
+  const {
+    data: { user },
+  } = await supabase.auth.getUser();
+
   if (!user) throw new Error('Not authenticated');
 
   const adminClient = getAdminClient();
-  const { data: profile } = await adminClient
+  const { data: profile, error: profileError } = await adminClient
     .from('profiles')
     .select('id, role, name')
     .eq('id', user.id)
-    .single();
+    .maybeSingle();
 
+  if (profileError) {
+    throw new Error('Profile fetch failed: ' + profileError.message);
+  }
   if (!profile) throw new Error('Profile not found');
+
   return { user, profile, adminClient };
 }
 
@@ -45,7 +62,9 @@ function todayStr(): string {
 
 function nowTime(): string {
   const now = new Date();
-  return `${String(now.getHours()).padStart(2, '0')}:${String(now.getMinutes()).padStart(2, '0')}`;
+  return `${String(now.getHours()).padStart(2, '0')}:${String(
+    now.getMinutes()
+  ).padStart(2, '0')}`;
 }
 
 // ============ EMPLOYEE: CHECK IN ============
@@ -65,7 +84,11 @@ export async function checkIn() {
     .gte('to_date', today)
     .maybeSingle();
 
-  if (onLeave) throw new Error('Aaj tumhari approved leave hai, check-in ki zaroorat nahi');
+  if (onLeave) {
+    throw new Error(
+      'Aaj tumhari approved leave hai, check-in ki zaroorat nahi'
+    );
+  }
 
   // Check existing
   const { data: existing } = await adminClient
@@ -75,14 +98,25 @@ export async function checkIn() {
     .eq('date', today)
     .maybeSingle();
 
-  if (existing?.check_in) throw new Error('Aaj already check-in kar chuke ho');
+  if (existing?.check_in) {
+    // Return info instead of throwing 500
+    return {
+      success: false,
+      alreadyCheckedIn: true,
+      time: existing.check_in.slice(0, 5),
+      message: `Aaj already ${existing.check_in.slice(
+        0,
+        5
+      )} pe check-in kar chuke ho`,
+    };
+  }
 
   // Get work start time
   const { data: settings } = await adminClient
     .from('company_settings')
     .select('work_start')
     .eq('id', 1)
-    .single();
+    .maybeSingle();
 
   const workStart = settings?.work_start || '09:30';
   const late = now > workStart.slice(0, 5);
@@ -110,9 +144,8 @@ export async function checkIn() {
   revalidatePath('/attendance');
   revalidatePath('/dashboard');
   revalidatePath('/me/attendance');
-  revalidatePath('/me/dashboard');
 
-  return { success: true, time: now, late };
+  return { success: true, time: now, late, alreadyCheckedIn: false };
 }
 
 // ============ EMPLOYEE: CHECK OUT ============
@@ -129,12 +162,23 @@ export async function checkOut() {
     .maybeSingle();
 
   if (!existing?.check_in) throw new Error('Pehle check-in karo');
-  if (existing.check_out) throw new Error('Aaj already check-out kar chuke ho');
+
+  if (existing.check_out) {
+    return {
+      success: false,
+      alreadyCheckedOut: true,
+      time: existing.check_out.slice(0, 5),
+      message: `Aaj already ${existing.check_out.slice(
+        0,
+        5
+      )} pe check-out kar chuke ho`,
+    };
+  }
 
   // Calculate hours
   const [h1, m1] = existing.check_in.split(':').map(Number);
   const [h2, m2] = now.split(':').map(Number);
-  const hours = ((h2 * 60 + m2) - (h1 * 60 + m1)) / 60;
+  const hours = (h2 * 60 + m2 - (h1 * 60 + m1)) / 60;
   const short_day = hours < 4;
 
   const { error } = await adminClient
@@ -151,9 +195,8 @@ export async function checkOut() {
   revalidatePath('/attendance');
   revalidatePath('/dashboard');
   revalidatePath('/me/attendance');
-  revalidatePath('/me/dashboard');
 
-  return { success: true, time: now, hours, short_day };
+  return { success: true, time: now, hours, short_day, alreadyCheckedOut: false };
 }
 
 // ============ GET TODAY'S ATTENDANCE FOR SELF ============
@@ -177,7 +220,6 @@ export async function getAttendanceByDate(date: string) {
 
   const adminClient = getAdminClient();
 
-  // Get all employees with their attendance for that date
   const { data: employees } = await adminClient
     .from('profiles')
     .select('id, name, username, dept, designation, role, is_active')
@@ -208,15 +250,15 @@ export async function adminSetAttendance(
     notes?: string;
   }
 ) {
-  const { profile: adminProfile, adminClient } = await requireAdmin();
+  await requireAdmin();
+  const adminClient = getAdminClient();
 
-  // Calculate hours
   let hours = 0;
   let short_day = false;
   if (data.check_in && data.check_out) {
     const [h1, m1] = data.check_in.split(':').map(Number);
     const [h2, m2] = data.check_out.split(':').map(Number);
-    hours = Math.max(0, ((h2 * 60 + m2) - (h1 * 60 + m1)) / 60);
+    hours = Math.max(0, (h2 * 60 + m2 - (h1 * 60 + m1)) / 60);
     short_day = hours < 4;
     hours = Math.round(hours * 100) / 100;
   }
@@ -331,7 +373,9 @@ export async function getAttendanceStats(date: string) {
     .eq('date', date);
 
   const total = employees?.length || 0;
-  const present = (attendance || []).filter((a) => a.status === 'Present').length;
+  const present = (attendance || []).filter(
+    (a) => a.status === 'Present'
+  ).length;
   const half = (attendance || []).filter((a) => a.status === 'Half').length;
   const leave = (attendance || []).filter((a) => a.status === 'Leave').length;
   const absent = total - present - half - leave;
