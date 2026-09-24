@@ -2,10 +2,9 @@
 
 import { useState, useEffect, useCallback } from 'react';
 import { toast } from 'sonner';
-import { fmtDate, todayStr } from '@/lib/utils/date';
+import { fmtDate } from '@/lib/utils/date';
 import { getMyMonthAttendance } from '@/lib/actions/me';
 import { TableSkeleton } from '@/components/ui/Skeleton';
-
 
 interface Att {
   id: string;
@@ -21,17 +20,18 @@ interface Att {
 export default function MyAttendancePage() {
   const [rows, setRows] = useState<Att[]>([]);
   const [loading, setLoading] = useState(true);
+  const [error, setError] = useState<string | null>(null);   // ← NEW
 
   const load = useCallback(async () => {
     setLoading(true);
+    setError(null);
     try {
       const data = await getMyMonthAttendance();
-      setRows(data as Att[]);
-
-      
+      setRows((data as Att[]) || []);
     } catch (err) {
-      console.error('🔥 Attendance load error:', err); 
-      toast.error((err as Error).message);
+      const msg = (err as Error).message || 'Attendance load nahi ho payi';
+      setError(msg);
+      toast.error(msg);
     } finally {
       setLoading(false);
     }
@@ -73,8 +73,21 @@ export default function MyAttendancePage() {
         </div>
         <div className="panel-body" style={{ padding: 0 }}>
           {loading ? (
-  <TableSkeleton rows={5} />
-) : rows.length === 0 ? (
+            <TableSkeleton rows={5} />
+          ) : error ? (
+            // ✅ ERROR STATE — user ko dikhao
+            <div className="empty">
+              <div className="big">⚠️</div>
+              <div style={{ marginBottom: 12 }}>{error}</div>
+              <button
+                className="btn btn-sm"
+                style={{ width: 'auto' }}
+                onClick={load}
+              >
+                🔄 Try Again
+              </button>
+            </div>
+          ) : rows.length === 0 ? (
             <div className="empty">
               <div className="big">📅</div>
               Is month koi record nahi

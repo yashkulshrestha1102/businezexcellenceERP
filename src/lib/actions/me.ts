@@ -5,11 +5,18 @@ import { createClient as createAdminClient } from '@supabase/supabase-js';
 import { revalidatePath } from 'next/cache';
 
 function getAdminClient() {
-  return createAdminClient(
-    process.env.NEXT_PUBLIC_SUPABASE_URL!,
-    process.env.SUPABASE_SERVICE_ROLE_KEY!,
-    { auth: { autoRefreshToken: false, persistSession: false } }
-  );
+  const url = process.env.NEXT_PUBLIC_SUPABASE_URL;
+  const serviceKey = process.env.SUPABASE_SERVICE_ROLE_KEY;
+  
+  if (!url || !serviceKey) {
+    throw new Error(
+      'Missing Supabase env vars. Check NEXT_PUBLIC_SUPABASE_URL and SUPABASE_SERVICE_ROLE_KEY on Vercel.'
+    );
+  }
+  
+  return createAdminClient(url, serviceKey, {
+    auth: { autoRefreshToken: false, persistSession: false },
+  });
 }
 
 async function requireAuth() {
@@ -103,9 +110,23 @@ export async function changeMyPassword(input: {
 // ============ MY ATTENDANCE (current month) ============
 export async function getMyMonthAttendance(month?: string) {
   const { profile, adminClient } = await requireAuth();
+
+  // Get month string (YYYY-MM)
   const m = month || new Date().toISOString().slice(0, 7);
+
+  // ✅ Proper date range calculation
+  const [year, mon] = m.split('-').map(Number);
   const start = `${m}-01`;
-  const end = `${m}-31`;
+  
+  // Last day of month: new Date(year, month, 0) → previous month's last day
+  const lastDay = new Date(year, mon, 0).getDate();
+  const end = `${m}-${String(lastDay).padStart(2, '0')}`;
+
+  console.log('🔍 fetch attendance:', {
+    employeeId: profile.id,
+    start,
+    end,
+  });
 
   const { data, error } = await adminClient
     .from('attendance')
@@ -115,7 +136,11 @@ export async function getMyMonthAttendance(month?: string) {
     .lte('date', end)
     .order('date', { ascending: false });
 
-  if (error) throw new Error(error.message);
+  if (error) {
+    console.error('❌ Attendance DB error:', error);
+    throw new Error('Attendance fetch failed: ' + error.message);
+  }
+
   return data || [];
 }
 
