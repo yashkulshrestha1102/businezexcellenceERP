@@ -1,4 +1,5 @@
 'use client';
+
 import Link from 'next/link';
 import { useState, useEffect } from 'react';
 import { useRouter } from 'next/navigation';
@@ -14,10 +15,10 @@ export default function LoginPage() {
   const [loading, setLoading] = useState(false);
 
   useEffect(() => {
-  // Reset auth state on login page
-  loadProfile();
-  // eslint-disable-next-line react-hooks/exhaustive-deps
-}, []);
+    // Reset auth state on login page
+    loadProfile();
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, []);
 
   async function handleLogin(e: React.FormEvent) {
     e.preventDefault();
@@ -83,13 +84,18 @@ export default function LoginPage() {
         </form>
 
         <div style={{ textAlign: 'center', marginTop: 16 }}>
-  <Link
-    href="/forgot-password"
-    style={{ color: 'var(--teal-600)', fontSize: 13, textDecoration: 'none' }}
-  >
-    Forgot password?
-  </Link>
-</div>
+          <Link
+            href="/forgot-password"
+            style={{
+              color: 'var(--teal-600)',
+              fontSize: 13,
+              textDecoration: 'none',
+              fontWeight: 600,
+            }}
+          >
+            Forgot password?
+          </Link>
+        </div>
       </div>
     </div>
   );
