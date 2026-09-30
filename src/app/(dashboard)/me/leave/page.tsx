@@ -43,8 +43,9 @@ export default function MyLeavePage() {
   }, []);
 
   useEffect(() => {
-    load();
-  }, [load]);
+  // eslint-disable-next-line react-hooks/set-state-in-effect
+  load();
+}, [load]);
 
   async function handleCancel(id: string) {
     try {

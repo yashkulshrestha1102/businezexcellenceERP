@@ -49,8 +49,9 @@ export default function LeavePage() {
   }, [filter]);
 
   useEffect(() => {
-    load();
-  }, [load]);
+  // eslint-disable-next-line react-hooks/set-state-in-effect
+  load();
+}, [load]);
 
   useEffect(() => {
     if (showForm && employees.length === 0) {

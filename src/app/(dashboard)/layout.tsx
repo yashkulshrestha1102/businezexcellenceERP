@@ -14,9 +14,10 @@ export default function DashboardLayout({
   const router = useRouter();
   const { profile, loading, initialized, loadProfile } = useAuth();
 
-  useEffect(() => {
-    loadProfile();
-  }, []);
+ useEffect(() => {
+  loadProfile();
+  // eslint-disable-next-line react-hooks/exhaustive-deps
+}, []);
 
   useEffect(() => {
     if (initialized && !loading && !profile) {

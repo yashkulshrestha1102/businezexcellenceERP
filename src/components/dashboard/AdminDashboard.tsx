@@ -101,8 +101,7 @@ if (loading) {
 
       <div className="panel">
         <div className="panel-head">
-          <h3>📊 Today's Attendance Breakdown</h3>
-        </div>
+<h3>📊 Today&apos;s Attendance Breakdown</h3>        </div>
         <div className="panel-body">
           <div className="mini-stat">
             <div className="m">

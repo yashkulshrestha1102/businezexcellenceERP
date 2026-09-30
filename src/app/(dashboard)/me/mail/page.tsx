@@ -23,7 +23,6 @@ interface Mail {
 }
 
 export default function MyMailPage() {
-  const { profile } = useAuth();
   const [mails, setMails] = useState<Mail[]>([]);
   const [loading, setLoading] = useState(true);
   const [showForm, setShowForm] = useState(false);
@@ -42,8 +41,9 @@ export default function MyMailPage() {
   }, []);
 
   useEffect(() => {
-    load();
-  }, [load]);
+  // eslint-disable-next-line react-hooks/set-state-in-effect
+  load();
+}, [load]);
 
   async function handleDelete(id: string) {
     try {

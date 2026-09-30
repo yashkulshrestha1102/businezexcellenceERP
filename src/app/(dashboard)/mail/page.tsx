@@ -3,7 +3,7 @@
 import { useState, useEffect, useCallback } from 'react';
 import { toast } from 'sonner';
 import { fmtDate } from '@/lib/utils/date';
-import { getAllMails, sendMail, deleteMail, getCompanySettings } from '@/lib/actions/mails';
+import { getAllMails, sendMail, deleteMail } from '@/lib/actions/mails';
 import { getEmployees } from '@/lib/actions/employees';
 import { TableSkeleton } from '@/components/ui/Skeleton';
 
@@ -37,8 +37,9 @@ export default function MailPage() {
   }, []);
 
   useEffect(() => {
-    load();
-  }, [load]);
+  // eslint-disable-next-line react-hooks/set-state-in-effect
+  load();
+}, [load]);
 
   async function handleDelete(id: string) {
     try {

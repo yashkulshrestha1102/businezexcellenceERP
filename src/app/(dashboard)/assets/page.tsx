@@ -52,10 +52,11 @@ export default function AssetsPage() {
     }
   }, []);
 
-  useEffect(() => {
-    load();
-    getEmployees().then((d) => setEmployees(d as Profile[])).catch(() => {});
-  }, [load]);
+ useEffect(() => {
+  // eslint-disable-next-line react-hooks/set-state-in-effect
+  load();
+  getEmployees().then((d) => setEmployees(d as Profile[])).catch(() => {});
+}, [load]);
 
   async function handleDelete() {
     if (!confirmDelete) return;

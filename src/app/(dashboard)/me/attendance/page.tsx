@@ -38,8 +38,9 @@ export default function MyAttendancePage() {
   }, []);
 
   useEffect(() => {
-    load();
-  }, [load]);
+  // eslint-disable-next-line react-hooks/set-state-in-effect
+  load();
+}, [load]);
 
   const present = rows.filter((r) => r.status === 'Present').length;
   const half = rows.filter((r) => r.status === 'Half').length;

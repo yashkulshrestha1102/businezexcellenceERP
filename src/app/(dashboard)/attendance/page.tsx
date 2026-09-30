@@ -53,8 +53,9 @@ export default function AttendancePage() {
   }, [date]);
 
   useEffect(() => {
-    load();
-  }, [load]);
+  // eslint-disable-next-line react-hooks/set-state-in-effect
+  load();
+}, [load]);
 
   const filtered = search.trim()
     ? rows.filter((r) =>

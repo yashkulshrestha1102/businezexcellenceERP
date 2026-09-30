@@ -61,11 +61,12 @@ export default function EmployeeDashboard() {
     }
   }, []);
 
-  useEffect(() => {
-    loadToday();
-    loadStats().finally(() => setLoading(false));
-    // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, []);
+ useEffect(() => {
+  loadToday();
+  // eslint-disable-next-line react-hooks/set-state-in-effect
+  loadStats().finally(() => setLoading(false));
+  // eslint-disable-next-line react-hooks/exhaustive-deps
+}, []);
 
   async function handleCheckIn() {
     setWorking(true);

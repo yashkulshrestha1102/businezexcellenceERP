@@ -35,8 +35,9 @@ export default function EmployeesPage() {
   }
 
   useEffect(() => {
-    load();
-  }, []);
+  // eslint-disable-next-line react-hooks/set-state-in-effect
+  load();
+}, []);
 
   const filtered = useMemo(() => {
     if (!search.trim()) return employees;

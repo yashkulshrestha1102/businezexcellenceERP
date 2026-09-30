@@ -14,9 +14,10 @@ export default function LoginPage() {
   const [loading, setLoading] = useState(false);
 
   useEffect(() => {
-    // Reset auth state on login page
-    loadProfile();
-  }, []);
+  // Reset auth state on login page
+  loadProfile();
+  // eslint-disable-next-line react-hooks/exhaustive-deps
+}, []);
 
   async function handleLogin(e: React.FormEvent) {
     e.preventDefault();
