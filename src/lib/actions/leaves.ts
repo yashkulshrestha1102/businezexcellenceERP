@@ -125,53 +125,58 @@ export async function reviewLeave(id: string, status: 'Approved' | 'Rejected') {
 
   if (error) throw new Error(error.message);
 
-  if (status === 'Approved') {
-    const { data: leave } = await supabase
-      .from('leaves')
-      .select('employee_id, from_date, to_date, type')
-      .eq('id', id)
-      .maybeSingle();
+ if (status === 'Approved') {
+  const { data: leave } = await supabase
+    .from('leaves')
+    .select('employee_id, from_date, to_date, type, reason')
+    .eq('id', id)
+    .maybeSingle();
 
-    if (leave && leave.type === 'Full') {
-      const start = new Date(leave.from_date + 'T00:00:00');
-      const end = new Date(leave.to_date + 'T00:00:00');
-      const dates: string[] = [];
-      for (let d = new Date(start); d <= end; d.setDate(d.getDate() + 1)) {
-        const y = d.getFullYear();
-        const m = String(d.getMonth() + 1).padStart(2, '0');
-        const day = String(d.getDate()).padStart(2, '0');
-        dates.push(`${y}-${m}-${day}`);
-      }
+  if (leave) {
+    const start = new Date(leave.from_date + 'T00:00:00');
+    const end = new Date(leave.to_date + 'T00:00:00');
+    const dates: string[] = [];
+    for (let d = new Date(start); d <= end; d.setDate(d.getDate() + 1)) {
+      const y = d.getFullYear();
+      const m = String(d.getMonth() + 1).padStart(2, '0');
+      const day = String(d.getDate()).padStart(2, '0');
+      dates.push(`${y}-${m}-${day}`);
+    }
 
-      for (const date of dates) {
-        const { data: existing } = await supabase
-          .from('attendance')
-          .select('id, check_in') // ✅ Check check_in bhi
-          .eq('employee_id', leave.employee_id)
-          .eq('date', date)
-          .maybeSingle();
+    // ✅ Handle both Full and Half day leaves
+    const attendanceStatus = leave.type === 'Half' ? 'Half' : 'Leave';
 
-        // ✅ FIX: Agar user ne already check-in kar liya tha, override na karo
-        if (existing) {
-          if (!existing.check_in) {
-            await supabase
-              .from('attendance')
-              .update({ status: 'Leave' })
-              .eq('id', existing.id);
-          }
-          // else: check-in already hai — leave mark na karo
-        } else {
-          await supabase.from('attendance').insert({
-            employee_id: leave.employee_id,
-            date,
-            status: 'Leave',
-            marked_by: 'admin',
-            notes: 'Auto-marked from approved leave',
-          });
+    for (const date of dates) {
+      const { data: existing } = await supabase
+        .from('attendance')
+        .select('id, check_in')
+        .eq('employee_id', leave.employee_id)
+        .eq('date', date)
+        .maybeSingle();
+
+      if (existing) {
+        // ✅ Preserve check-in if user has already marked
+        if (!existing.check_in) {
+          await supabase
+            .from('attendance')
+            .update({
+              status: attendanceStatus,
+              notes: `Auto-marked from approved ${leave.type.toLowerCase()} leave`,
+            })
+            .eq('id', existing.id);
         }
+      } else {
+        await supabase.from('attendance').insert({
+          employee_id: leave.employee_id,
+          date,
+          status: attendanceStatus,
+          marked_by: 'admin',
+          notes: `Auto-marked from approved ${leave.type.toLowerCase()} leave`,
+        });
       }
     }
   }
+}
 
   revalidatePath('/leave');
   revalidatePath('/me/leave');

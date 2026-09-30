@@ -40,8 +40,14 @@ export default function AdminDashboard() {
     })();
   }, [today]);
 
-  if (loading) return <div className="empty">Loading dashboard...</div>;
-
+if (loading) {
+  return (
+    <div className="page-loader">
+      <div className="spinner spinner-dark" />
+      <span>Loading dashboard...</span>
+    </div>
+  );
+}
   return (
     <>
       <div className="page-head">

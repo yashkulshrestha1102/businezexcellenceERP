@@ -5,7 +5,7 @@ import { toast } from 'sonner';
 import { todayStr } from '@/lib/utils/date';
 import { downloadCSV } from '@/lib/utils/export';
 import { getEmployees } from '@/lib/actions/employees';
-import { getAttendanceByDate } from '@/lib/actions/attendance';
+import { getAttendanceRange } from '@/lib/actions/attendance';
 import { getAllLeaves } from '@/lib/actions/leaves';
 import { getAllAssets } from '@/lib/actions/assets';
 import type { Profile } from '@/types/database';
@@ -42,55 +42,53 @@ export default function ReportsPage() {
   }
 
   async function exportAttendance() {
-    setLoading('attendance');
-    try {
-      // Loop through dates and collect
-      const start = new Date(fromDate + 'T00:00:00');
-      const end = new Date(toDate + 'T00:00:00');
-      const dates: string[] = [];
-      for (let d = new Date(start); d <= end; d.setDate(d.getDate() + 1)) {
-        const y = d.getFullYear();
-        const m = String(d.getMonth() + 1).padStart(2, '0');
-        const day = String(d.getDate()).padStart(2, '0');
-        dates.push(`${y}-${m}-${day}`);
-      }
-
-      const all: Record<string, unknown>[] = [];
-      for (const date of dates) {
-        const data = await getAttendanceByDate(date);
-        for (const r of data as Array<{
-          employee: Profile;
-          attendance: {
-            check_in: string | null;
-            check_out: string | null;
-            status: string;
-            hours: number;
-            late: boolean;
-            short_day: boolean;
-          } | null;
-        }>) {
-          all.push({
-            Date: date,
-            Employee: r.employee.name,
-            Username: r.employee.username,
-            Department: r.employee.dept || '',
-            Status: r.attendance?.status || 'Absent',
-            'Check In': r.attendance?.check_in?.slice(0, 5) || '',
-            'Check Out': r.attendance?.check_out?.slice(0, 5) || '',
-            Hours: r.attendance?.hours || 0,
-            Late: r.attendance?.late ? 'Yes' : 'No',
-            'Short Day': r.attendance?.short_day ? 'Yes' : 'No',
-          });
-        }
-      }
-      downloadCSV(`attendance-${fromDate}-to-${toDate}.csv`, all);
-      toast.success(`${all.length} records export`);
-    } catch (err) {
-      toast.error((err as Error).message);
-    } finally {
-      setLoading(null);
+  setLoading('attendance');
+  try {
+    // Generate dates array
+    const start = new Date(fromDate + 'T00:00:00');
+    const end = new Date(toDate + 'T00:00:00');
+    const dates: string[] = [];
+    for (let d = new Date(start); d <= end; d.setDate(d.getDate() + 1)) {
+      const y = d.getFullYear();
+      const m = String(d.getMonth() + 1).padStart(2, '0');
+      const day = String(d.getDate()).padStart(2, '0');
+      dates.push(`${y}-${m}-${day}`);
     }
+
+    // ✅ SINGLE query for entire range
+    const { employees, attByDateEmp } = await getAttendanceRange(
+      fromDate,
+      toDate
+    );
+
+    const all: Record<string, unknown>[] = [];
+    for (const date of dates) {
+      const dayMap = attByDateEmp.get(date) || new Map();
+      for (const emp of employees) {
+        const att = dayMap.get(emp.id);
+        all.push({
+          Date: date,
+          Employee: emp.name,
+          Username: emp.username,
+          Department: emp.dept || '',
+          Status: att?.status || 'Absent',
+          'Check In': att?.check_in?.toString().slice(0, 5) || '',
+          'Check Out': att?.check_out?.toString().slice(0, 5) || '',
+          Hours: att?.hours || 0,
+          Late: att?.late ? 'Yes' : 'No',
+          'Short Day': att?.short_day ? 'Yes' : 'No',
+        });
+      }
+    }
+
+    downloadCSV(`attendance-${fromDate}-to-${toDate}.csv`, all);
+    toast.success(`${all.length} records export`);
+  } catch (err) {
+    toast.error((err as Error).message);
+  } finally {
+    setLoading(null);
   }
+}
 
   async function exportLeaves() {
     setLoading('leaves');

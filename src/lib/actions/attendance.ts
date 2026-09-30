@@ -96,9 +96,20 @@ export async function checkIn() {
       .eq('id', existingRow.id);
     if (error) throw new Error(error.message);
   } else {
-    const { error } = await supabase.from('attendance').insert(payload);
-    if (error) throw new Error(error.message);
+  const { error } = await supabase.from('attendance').insert(payload);
+  if (error) {
+    // ✅ Friendly error for race condition
+    if (error.code === '23505') {
+      // Unique constraint violation
+      return {
+        success: false,
+        alreadyCheckedIn: true,
+        message: 'Aaj already check-in ho chuka hai',
+      };
+    }
+    throw new Error(error.message);
   }
+}
 
   revalidatePath('/attendance');
   revalidatePath('/dashboard');
@@ -331,21 +342,114 @@ export async function adminMarkAllPresent(date: string) {
   return { success: true, count: inserts.length };
 }
 
-// ============ STATS ============
+// ============ STATS (FIXED) ============
 export async function getAttendanceStats(date: string) {
   const { supabase } = await requireAdmin();
 
-  const [empRes, attRes] = await Promise.all([
-    supabase.from('profiles').select('id').eq('is_active', true),
-    supabase.from('attendance').select('status').eq('date', date),
+  // 1. Sirf employees count karo (admins nahi)
+  // 2. Leave pe hai kaun — check karo
+  // 3. Attendance records fetch karo
+  const [empRes, attRes, leaveRes] = await Promise.all([
+    supabase
+      .from('profiles')
+      .select('id')
+      .eq('is_active', true)
+      .eq('role', 'employee'), // ✅ Sirf employees
+    supabase.from('attendance').select('employee_id, status').eq('date', date),
+    supabase
+      .from('leaves')
+      .select('employee_id')
+      .eq('status', 'Approved')
+      .eq('type', 'Full')
+      .lte('from_date', date)
+      .gte('to_date', date), // ✅ Aaj leave pe hain
   ]);
 
   const total = (empRes.data || []).length;
-  const att = (attRes.data || []) as Array<{ status: string }>;
-  const present = att.filter((a) => a.status === 'Present').length;
-  const half = att.filter((a) => a.status === 'Half').length;
-  const leave = att.filter((a) => a.status === 'Leave').length;
-  const absent = total - present - half - leave;
+  const att = (attRes.data || []) as Array<{
+    employee_id: string;
+    status: string;
+  }>;
+
+  const empIds = new Set((empRes.data || []).map((e) => e.id));
+  const attMap = new Map(att.map((a) => [a.employee_id, a.status]));
+  const leaveIds = new Set(
+    ((leaveRes.data || []) as Array<{ employee_id: string }>).map(
+      (l) => l.employee_id
+    )
+  );
+
+  // Count based on employee IDs
+  let present = 0;
+  let half = 0;
+  let leave = 0;
+  let absent = 0;
+
+  for (const empId of empIds) {
+    const status = attMap.get(empId);
+
+    if (status === 'Present') present++;
+    else if (status === 'Half') half++;
+    else if (status === 'Leave') leave++;
+    else if (status === 'Absent') absent++;
+    else if (leaveIds.has(empId)) {
+      // ✅ Leave table me hai but attendance table me record nahi
+      leave++;
+    } else {
+      // ✅ Koi record nahi = absent
+      absent++;
+    }
+  }
 
   return { total, present, half, leave, absent };
+}
+
+
+
+// ============ ADMIN: BULK ATTENDANCE FOR RANGE ============
+export async function getAttendanceRange(
+  fromDate: string,
+  toDate: string
+) {
+  const { supabase } = await requireAdmin();
+
+  const [empRes, attRes] = await Promise.all([
+    supabase
+      .from('profiles')
+      .select('id, name, username, dept, designation, role, is_active')
+      .eq('is_active', true)
+      .order('name'),
+    supabase
+      .from('attendance')
+      .select('*')
+      .gte('date', fromDate)
+      .lte('date', toDate), // ✅ Single query for entire range
+  ]);
+
+  const employees = (empRes.data || []) as Array<{
+    id: string;
+    name: string;
+    username: string;
+    dept: string | null;
+    designation: string | null;
+    role: string;
+    is_active: boolean;
+  }>;
+
+  const attendance = (attRes.data || []) as Array<{
+    employee_id: string;
+    date: string;
+    [key: string]: unknown;
+  }>;
+
+  // Group attendance by date + employee
+  const attByDateEmp = new Map<string, Map<string, typeof attendance[0]>>();
+  for (const a of attendance) {
+    if (!attByDateEmp.has(a.date)) {
+      attByDateEmp.set(a.date, new Map());
+    }
+    attByDateEmp.get(a.date)!.set(a.employee_id, a);
+  }
+
+  return { employees, attByDateEmp };
 }

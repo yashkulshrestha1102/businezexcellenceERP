@@ -1,10 +1,16 @@
 'use client';
 
 import { useState, useEffect, useCallback } from 'react';
-import { toast } from 'sonner';
+import { toast } from 'sonner'; // ✅ Fixed
 import { fmtDate } from '@/lib/utils/date';
-import { getMyMails, sendMail, deleteMail, getPublicCompanySettings } from '@/lib/actions/mails';
+import {
+  getMyMails,
+  sendMail,
+  deleteMail,
+  getPublicCompanySettings,
+} from '@/lib/actions/mails';
 import { useAuth } from '@/lib/hooks/useAuth';
+import { TableSkeleton } from '@/components/ui/Skeleton';
 
 interface Mail {
   id: string;
@@ -76,7 +82,7 @@ export default function MyMailPage() {
         </div>
         <div className="panel-body" style={{ padding: 0 }}>
           {loading ? (
-            <div className="empty">Loading...</div>
+            <TableSkeleton rows={5} />
           ) : mails.length === 0 ? (
             <div className="empty">
               <div className="big">📭</div>
@@ -97,14 +103,22 @@ export default function MyMailPage() {
                   {mails.map((m) => (
                     <tr key={m.id}>
                       <td>{m.to_email}</td>
-                      <td><b>{m.subject}</b></td>
+                      <td>
+                        <b>{m.subject}</b>
+                      </td>
                       <td>{fmtDate(m.sent_at?.slice(0, 10))}</td>
                       <td>
                         <div className="act-btns">
-                          <button className="icon-btn" onClick={() => setViewMail(m)}>
+                          <button
+                            className="icon-btn"
+                            onClick={() => setViewMail(m)}
+                          >
                             👁
                           </button>
-                          <button className="icon-btn del" onClick={() => handleDelete(m.id)}>
+                          <button
+                            className="icon-btn del"
+                            onClick={() => handleDelete(m.id)}
+                          >
                             🗑
                           </button>
                         </div>
@@ -120,7 +134,6 @@ export default function MyMailPage() {
 
       {showForm && (
         <ComposeModal
-          adminEmail={profile?.email ? undefined : undefined}
           onClose={() => setShowForm(false)}
           onSent={() => {
             setShowForm(false);
@@ -140,7 +153,6 @@ function ComposeModal({
   onClose,
   onSent,
 }: {
-  adminEmail?: string;
   onClose: () => void;
   onSent: () => void;
 }) {
@@ -153,18 +165,17 @@ function ComposeModal({
   const [sending, setSending] = useState(false);
 
   useEffect(() => {
-    // NOTE: Employee ko admin_email nahi chahiye — fallback use karo
-getPublicCompanySettings()
-  .then(() => {
-    setForm((f) => ({
-      ...f,
-      to_email: 'admin@rosterpro.com', // ✅ Default, admin ko khud pata hoga
-      body: `Respected Admin,\n\nMai ${profile?.name} (${profile?.designation || ''}, ${profile?.dept || ''}) se apni baat likhna chahta hoon.\n\n[Yahan apni baat likho]\n\nDhanyavaad,\n${profile?.name}\n${profile?.phone || ''}`,
-    }));
-  })
-  .catch(() => {
-    setForm((f) => ({ ...f, to_email: 'admin@rosterpro.com' }));
-  });
+    getPublicCompanySettings()
+      .then((s) => {
+        setForm((f) => ({
+          ...f,
+          to_email: s.admin_email || 'admin@rosterpro.com',
+          body: `Respected Admin,\n\nMai ${profile?.name} (${profile?.designation || ''}, ${profile?.dept || ''}) se apni baat likhna chahta hoon.\n\n[Yahan apni baat likho]\n\nDhanyavaad,\n${profile?.name}\n${profile?.phone || ''}`,
+        }));
+      })
+      .catch(() => {
+        setForm((f) => ({ ...f, to_email: 'admin@rosterpro.com' }));
+      });
   }, [profile]);
 
   async function handleSend(openGmail: boolean) {
@@ -194,7 +205,9 @@ getPublicCompanySettings()
       <div className="modal" onClick={(e) => e.stopPropagation()}>
         <div className="modal-head">
           <h3>Compose Mail to Admin</h3>
-          <button className="x" onClick={onClose}>✕</button>
+          <button className="x" onClick={onClose}>
+            ✕
+          </button>
         </div>
         <div className="modal-body">
           <div className="field">
@@ -220,7 +233,14 @@ getPublicCompanySettings()
               onChange={(e) => setForm({ ...form, body: e.target.value })}
             />
           </div>
-          <div style={{ display: 'flex', gap: 10, marginTop: 14, flexWrap: 'wrap' }}>
+          <div
+            style={{
+              display: 'flex',
+              gap: 10,
+              marginTop: 14,
+              flexWrap: 'wrap',
+            }}
+          >
             <button
               className="btn btn-sm"
               onClick={() => handleSend(true)}
@@ -244,13 +264,21 @@ getPublicCompanySettings()
   );
 }
 
-function ViewMailModal({ mail, onClose }: { mail: Mail; onClose: () => void }) {
+function ViewMailModal({
+  mail,
+  onClose,
+}: {
+  mail: Mail;
+  onClose: () => void;
+}) {
   return (
     <div className="modal-bg" onClick={onClose}>
       <div className="modal" onClick={(e) => e.stopPropagation()}>
         <div className="modal-head">
           <h3>Mail — {mail.subject}</h3>
-          <button className="x" onClick={onClose}>✕</button>
+          <button className="x" onClick={onClose}>
+            ✕
+          </button>
         </div>
         <div className="modal-body">
           <div className="field">
