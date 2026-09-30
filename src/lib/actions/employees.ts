@@ -1,41 +1,8 @@
 'use server';
 
-import { createClient } from '@/lib/supabase/server';
-import { createClient as createAdminClient } from '@supabase/supabase-js';
+import { requireAdmin, createServiceClient } from './_shared/auth';
 import { revalidatePath } from 'next/cache';
 import { MIN_PASSWORD_LENGTH } from '@/lib/constants';
-
-function getAdminClient() {
-  const url = process.env.NEXT_PUBLIC_SUPABASE_URL;
-  const serviceKey = process.env.SUPABASE_SERVICE_ROLE_KEY;
-
-  if (!url) throw new Error('Missing NEXT_PUBLIC_SUPABASE_URL');
-  if (!serviceKey) throw new Error('Missing SUPABASE_SERVICE_ROLE_KEY');
-
-  return createAdminClient(url, serviceKey, {
-    auth: { autoRefreshToken: false, persistSession: false },
-  });
-}
-
-async function requireAdmin() {
-  const supabase = await createClient();
-  const { data: { user } } = await supabase.auth.getUser();
-  if (!user) throw new Error('Not authenticated');
-
-  const adminClient = getAdminClient();
-  const { data: profile, error } = await adminClient
-    .from('profiles')
-    .select('id, role, is_active, name, email')
-    .eq('id', user.id)
-    .maybeSingle();
-
-  if (error) throw new Error('Profile fetch failed: ' + error.message);
-  if (!profile) throw new Error('No profile found for your account.');
-  if (profile.role !== 'admin') throw new Error(`Admin only. Your role: "${profile.role}"`);
-  if (!profile.is_active) throw new Error('Your account is inactive');
-
-  return { user, adminClient };
-}
 
 interface EmployeeInput {
   name: string;
@@ -52,10 +19,9 @@ interface EmployeeInput {
 
 // ============ LIST ============
 export async function getEmployees() {
-  await requireAdmin();
-  const adminClient = getAdminClient();
+  const { supabase } = await requireAdmin();
 
-  const { data, error } = await adminClient
+  const { data, error } = await supabase
     .from('profiles')
     .select('*')
     .order('created_at', { ascending: false });
@@ -64,9 +30,10 @@ export async function getEmployees() {
   return data || [];
 }
 
-// ============ CREATE ============
+// ============ CREATE (needs service role for auth.admin) ============
 export async function createEmployee(input: EmployeeInput) {
-  const { adminClient } = await requireAdmin();
+  await requireAdmin(); // ✅ Auth check
+  const adminClient = createServiceClient(); // ✅ Service role for auth.admin only
 
   if (!input.name || !input.username || !input.email || !input.password) {
     throw new Error('Name, username, email, and password are required');
@@ -117,7 +84,8 @@ export async function createEmployee(input: EmployeeInput) {
 
 // ============ UPDATE ============
 export async function updateEmployee(id: string, input: Partial<EmployeeInput>) {
-  const { user, adminClient } = await requireAdmin();
+  const { user, supabase } = await requireAdmin();
+  const adminClient = createServiceClient();
 
   if (id === user.id && input.role && input.role !== 'admin') {
     throw new Error('You cannot remove your own admin role');
@@ -149,7 +117,7 @@ export async function updateEmployee(id: string, input: Partial<EmployeeInput>) 
     if (emailError) throw new Error(emailError.message);
   }
 
-  const { error } = await adminClient
+  const { error } = await supabase
     .from('profiles')
     .update(updateData)
     .eq('id', id);
@@ -163,7 +131,8 @@ export async function updateEmployee(id: string, input: Partial<EmployeeInput>) 
 
 // ============ DELETE ============
 export async function deleteEmployee(id: string) {
-  const { user, adminClient } = await requireAdmin();
+  const { user } = await requireAdmin();
+  const adminClient = createServiceClient();
 
   if (user.id === id) throw new Error('You cannot delete your own account');
 
@@ -177,10 +146,9 @@ export async function deleteEmployee(id: string) {
 
 // ============ GET SINGLE ============
 export async function getEmployee(id: string) {
-  await requireAdmin();
-  const adminClient = getAdminClient();
+  const { supabase } = await requireAdmin();
 
-  const { data, error } = await adminClient
+  const { data, error } = await supabase
     .from('profiles')
     .select('*')
     .eq('id', id)

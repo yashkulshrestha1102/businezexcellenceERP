@@ -2,21 +2,19 @@
 
 import { create } from 'zustand';
 import { persist, createJSONStorage } from 'zustand/middleware';
-import { getCompanySettings } from '@/lib/actions/mails';
+import { getPublicCompanySettings } from '@/lib/actions/mails'; // ✅ Changed
 import type { CompanySettings } from '@/types/database';
 import {
   DEFAULT_WORK_START,
   DEFAULT_WORK_END,
   DEFAULT_HALF_DAY_HOURS,
   DEFAULT_FULL_DAY_HOURS,
+  DEFAULT_LATE_GRACE_MINUTES,
   STORAGE_KEYS,
 } from '@/lib/constants';
 
-const CACHE_TTL_MS = 5 * 60 * 1000; // 5 minutes
-
 interface CompanySettingsState {
   settings: CompanySettings | null;
-  loadedAt: number | null;
   loading: boolean;
   initialized: boolean;
   load: (force?: boolean) => Promise<void>;
@@ -31,7 +29,7 @@ const fallback: CompanySettings = {
   work_end: DEFAULT_WORK_END,
   half_day_hours: DEFAULT_HALF_DAY_HOURS,
   full_day_hours: DEFAULT_FULL_DAY_HOURS,
-  late_grace_minutes: 15,
+  late_grace_minutes: DEFAULT_LATE_GRACE_MINUTES,
   updated_at: new Date().toISOString(),
 };
 
@@ -39,34 +37,25 @@ export const useCompanySettings = create<CompanySettingsState>()(
   persist(
     (set, get) => ({
       settings: null,
-      loadedAt: null,
       loading: false,
       initialized: false,
 
       load: async (force = false) => {
         const state = get();
         if (state.loading) return;
-
-        const now = Date.now();
-        const isStale =
-          !state.loadedAt || now - state.loadedAt > CACHE_TTL_MS;
-
-        if (state.initialized && !force && !isStale) return;
+        if (state.initialized && !force) return;
 
         set({ loading: true });
         try {
-          const s = await getCompanySettings();
+          const s = await getPublicCompanySettings(); // ✅ Public-safe
           set({
             settings: (s as CompanySettings) || fallback,
-            loadedAt: now,
             loading: false,
             initialized: true,
           });
-        } catch (err) {
-          console.error('Company settings load failed:', err);
+        } catch {
           set({
-            settings: state.settings || fallback,
-            loadedAt: now,
+            settings: fallback,
             loading: false,
             initialized: true,
           });
@@ -76,7 +65,6 @@ export const useCompanySettings = create<CompanySettingsState>()(
       clear: () =>
         set({
           settings: null,
-          loadedAt: null,
           loading: false,
           initialized: false,
         }),
@@ -84,10 +72,7 @@ export const useCompanySettings = create<CompanySettingsState>()(
     {
       name: STORAGE_KEYS.COMPANY_SETTINGS,
       storage: createJSONStorage(() => localStorage),
-      partialize: (s) => ({
-        settings: s.settings,
-        loadedAt: s.loadedAt,
-      }),
+      partialize: (s) => ({ settings: s.settings }),
     }
   )
 );

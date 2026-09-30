@@ -1,45 +1,8 @@
 'use server';
 
-import { createClient } from '@/lib/supabase/server';
-import { createClient as createAdminClient } from '@supabase/supabase-js';
+import { requireAuth, requireAdmin } from './_shared/auth';
 import { revalidatePath } from 'next/cache';
 import { HALF_LEAVE_DAYS } from '@/lib/constants';
-
-function getAdminClient() {
-  const url = process.env.NEXT_PUBLIC_SUPABASE_URL;
-  const serviceKey = process.env.SUPABASE_SERVICE_ROLE_KEY;
-
-  if (!url) throw new Error('Missing NEXT_PUBLIC_SUPABASE_URL');
-  if (!serviceKey) throw new Error('Missing SUPABASE_SERVICE_ROLE_KEY');
-
-  return createAdminClient(url, serviceKey, {
-    auth: { autoRefreshToken: false, persistSession: false },
-  });
-}
-
-async function requireAuth() {
-  const supabase = await createClient();
-  const { data: { user } } = await supabase.auth.getUser();
-  if (!user) throw new Error('Not authenticated');
-
-  const adminClient = getAdminClient();
-  const { data: profile, error } = await adminClient
-    .from('profiles')
-    .select('id, role, name, username')
-    .eq('id', user.id)
-    .maybeSingle();
-
-  if (error) throw new Error('Profile fetch failed: ' + error.message);
-  if (!profile) throw new Error('Profile not found');
-
-  return { user, profile, adminClient };
-}
-
-async function requireAdmin() {
-  const ctx = await requireAuth();
-  if (ctx.profile.role !== 'admin') throw new Error('Admin only');
-  return ctx;
-}
 
 function calculateDays(from: string, to: string, type: 'Full' | 'Half'): number {
   if (type === 'Half') return HALF_LEAVE_DAYS;
@@ -56,7 +19,7 @@ export async function applyLeave(input: {
   type: 'Full' | 'Half';
   reason: string;
 }) {
-  const { profile, adminClient } = await requireAuth();
+  const { profile, supabase } = await requireAuth();
 
   if (!input.from_date || !input.to_date) {
     throw new Error('From and To dates are required');
@@ -70,7 +33,7 @@ export async function applyLeave(input: {
 
   const days = calculateDays(input.from_date, input.to_date, input.type);
 
-  const { data, error } = await adminClient
+  const { data, error } = await supabase
     .from('leaves')
     .insert({
       employee_id: profile.id,
@@ -95,9 +58,9 @@ export async function applyLeave(input: {
 
 // ============ EMPLOYEE: CANCEL ============
 export async function cancelMyLeave(id: string) {
-  const { profile, adminClient } = await requireAuth();
+  const { profile, supabase } = await requireAuth();
 
-  const { data: leave } = await adminClient
+  const { data: leave } = await supabase
     .from('leaves')
     .select('employee_id, status')
     .eq('id', id)
@@ -107,7 +70,7 @@ export async function cancelMyLeave(id: string) {
   if (leave.employee_id !== profile.id) throw new Error('Not your leave');
   if (leave.status !== 'Pending') throw new Error('Only pending leaves can be cancelled');
 
-  const { error } = await adminClient.from('leaves').delete().eq('id', id);
+  const { error } = await supabase.from('leaves').delete().eq('id', id);
   if (error) throw new Error(error.message);
 
   revalidatePath('/me/leave');
@@ -117,9 +80,9 @@ export async function cancelMyLeave(id: string) {
 
 // ============ GET MY LEAVES ============
 export async function getMyLeaves() {
-  const { profile, adminClient } = await requireAuth();
+  const { profile, supabase } = await requireAuth();
 
-  const { data, error } = await adminClient
+  const { data, error } = await supabase
     .from('leaves')
     .select('*')
     .eq('employee_id', profile.id)
@@ -131,10 +94,9 @@ export async function getMyLeaves() {
 
 // ============ ADMIN: ALL LEAVES ============
 export async function getAllLeaves(filterStatus?: string) {
-  await requireAdmin();
-  const adminClient = getAdminClient();
+  const { supabase } = await requireAdmin();
 
-  let query = adminClient
+  let query = supabase
     .from('leaves')
     .select('*, employee:profiles!leaves_employee_id_fkey(id, name, username, dept)')
     .order('applied_at', { ascending: false });
@@ -148,11 +110,11 @@ export async function getAllLeaves(filterStatus?: string) {
   return data || [];
 }
 
-// ============ ADMIN: APPROVE / REJECT ============
+// ============ ADMIN: APPROVE / REJECT (Bug Fixed ✅) ============
 export async function reviewLeave(id: string, status: 'Approved' | 'Rejected') {
-  const { profile: adminProfile, adminClient } = await requireAdmin();
+  const { profile: adminProfile, supabase } = await requireAdmin();
 
-  const { error } = await adminClient
+  const { error } = await supabase
     .from('leaves')
     .update({
       status,
@@ -164,7 +126,7 @@ export async function reviewLeave(id: string, status: 'Approved' | 'Rejected') {
   if (error) throw new Error(error.message);
 
   if (status === 'Approved') {
-    const { data: leave } = await adminClient
+    const { data: leave } = await supabase
       .from('leaves')
       .select('employee_id, from_date, to_date, type')
       .eq('id', id)
@@ -182,20 +144,24 @@ export async function reviewLeave(id: string, status: 'Approved' | 'Rejected') {
       }
 
       for (const date of dates) {
-        const { data: existing } = await adminClient
+        const { data: existing } = await supabase
           .from('attendance')
-          .select('id')
+          .select('id, check_in') // ✅ Check check_in bhi
           .eq('employee_id', leave.employee_id)
           .eq('date', date)
           .maybeSingle();
 
+        // ✅ FIX: Agar user ne already check-in kar liya tha, override na karo
         if (existing) {
-          await adminClient
-            .from('attendance')
-            .update({ status: 'Leave' })
-            .eq('id', existing.id);
+          if (!existing.check_in) {
+            await supabase
+              .from('attendance')
+              .update({ status: 'Leave' })
+              .eq('id', existing.id);
+          }
+          // else: check-in already hai — leave mark na karo
         } else {
-          await adminClient.from('attendance').insert({
+          await supabase.from('attendance').insert({
             employee_id: leave.employee_id,
             date,
             status: 'Leave',
@@ -216,9 +182,8 @@ export async function reviewLeave(id: string, status: 'Approved' | 'Rejected') {
 
 // ============ ADMIN: DELETE ============
 export async function deleteLeave(id: string) {
-  await requireAdmin();
-  const adminClient = getAdminClient();
-  const { error } = await adminClient.from('leaves').delete().eq('id', id);
+  const { supabase } = await requireAdmin();
+  const { error } = await supabase.from('leaves').delete().eq('id', id);
   if (error) throw new Error(error.message);
   revalidatePath('/leave');
   revalidatePath('/me/leave');
@@ -234,11 +199,11 @@ export async function adminCreateLeave(input: {
   reason: string;
   status: 'Pending' | 'Approved' | 'Rejected';
 }) {
-  const { profile: adminProfile, adminClient } = await requireAdmin();
+  const { profile: adminProfile, supabase } = await requireAdmin();
 
   const days = calculateDays(input.from_date, input.to_date, input.type);
 
-  const { error } = await adminClient.from('leaves').insert({
+  const { error } = await supabase.from('leaves').insert({
     employee_id: input.employee_id,
     from_date: input.from_date,
     to_date: input.to_date,
@@ -258,10 +223,9 @@ export async function adminCreateLeave(input: {
 
 // ============ STATS ============
 export async function getLeaveStats() {
-  await requireAdmin();
-  const adminClient = getAdminClient();
+  const { supabase } = await requireAdmin();
 
-  const { data: all } = await adminClient.from('leaves').select('status, days');
+  const { data: all } = await supabase.from('leaves').select('status, days');
 
   const pending = (all || []).filter((l) => l.status === 'Pending').length;
   const approved = (all || []).filter((l) => l.status === 'Approved').length;
@@ -275,9 +239,9 @@ export async function getLeaveStats() {
 
 // ============ MY LEAVE BALANCE ============
 export async function getMyLeaveBalance() {
-  const { profile, adminClient } = await requireAuth();
+  const { profile, supabase } = await requireAuth();
 
-  const { data: leaves } = await adminClient
+  const { data: leaves } = await supabase
     .from('leaves')
     .select('days, status')
     .eq('employee_id', profile.id);

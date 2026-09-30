@@ -1,44 +1,12 @@
 'use server';
 
-import { createClient } from '@/lib/supabase/server';
-import { createClient as createAdminClient } from '@supabase/supabase-js';
+import { requireAuth, requireAdmin } from './_shared/auth';
 import { revalidatePath } from 'next/cache';
 
-function getAdminClient() {
-  return createAdminClient(
-    process.env.NEXT_PUBLIC_SUPABASE_URL!,
-    process.env.SUPABASE_SERVICE_ROLE_KEY!,
-    { auth: { autoRefreshToken: false, persistSession: false } }
-  );
-}
-
-async function requireAuth() {
-  const supabase = await createClient();
-  const { data: { user } } = await supabase.auth.getUser();
-  if (!user) throw new Error('Not authenticated');
-
-  const adminClient = getAdminClient();
-  const { data: profile } = await adminClient
-    .from('profiles')
-    .select('id, role, name')
-    .eq('id', user.id)
-    .single();
-
-  if (!profile) throw new Error('Profile not found');
-  return { user, profile, adminClient };
-}
-
-async function requireAdmin() {
-  const ctx = await requireAuth();
-  if (ctx.profile.role !== 'admin') throw new Error('Admin only');
-  return ctx;
-}
-
 export async function getAllAssets() {
-  await requireAdmin();
-  const adminClient = getAdminClient();
+  const { supabase } = await requireAdmin();
 
-  const { data, error } = await adminClient
+  const { data, error } = await supabase
     .from('assets')
     .select('*, assigned_employee:profiles!assets_assigned_to_fkey(id, name, username)')
     .order('created_at', { ascending: false });
@@ -48,9 +16,9 @@ export async function getAllAssets() {
 }
 
 export async function getMyAssets() {
-  const { profile, adminClient } = await requireAuth();
+  const { profile, supabase } = await requireAuth();
 
-  const { data, error } = await adminClient
+  const { data, error } = await supabase
     .from('assets')
     .select('*')
     .eq('assigned_to', profile.id)
@@ -67,12 +35,11 @@ export async function createAsset(input: {
   assigned_to: string | null;
   notes?: string;
 }) {
-  await requireAdmin();
-  const adminClient = getAdminClient();
+  const { supabase } = await requireAdmin();
 
   if (!input.name.trim()) throw new Error('Asset name required');
 
-  const { error } = await adminClient.from('assets').insert({
+  const { error } = await supabase.from('assets').insert({
     name: input.name.trim(),
     type: input.type || 'Other',
     serial: input.serial || '',
@@ -100,8 +67,7 @@ export async function updateAsset(
     notes?: string;
   }
 ) {
-  await requireAdmin();
-  const adminClient = getAdminClient();
+  const { supabase } = await requireAdmin();
 
   const update: Record<string, unknown> = {};
   if (input.name !== undefined) update.name = input.name.trim();
@@ -122,7 +88,7 @@ export async function updateAsset(
   }
   if (input.status) update.status = input.status;
 
-  const { error } = await adminClient.from('assets').update(update).eq('id', id);
+  const { error } = await supabase.from('assets').update(update).eq('id', id);
   if (error) throw new Error(error.message);
 
   revalidatePath('/assets');
@@ -131,10 +97,9 @@ export async function updateAsset(
 }
 
 export async function deleteAsset(id: string) {
-  await requireAdmin();
-  const adminClient = getAdminClient();
+  const { supabase } = await requireAdmin();
 
-  const { error } = await adminClient.from('assets').delete().eq('id', id);
+  const { error } = await supabase.from('assets').delete().eq('id', id);
   if (error) throw new Error(error.message);
 
   revalidatePath('/assets');
@@ -143,10 +108,9 @@ export async function deleteAsset(id: string) {
 }
 
 export async function getAssetStats() {
-  await requireAdmin();
-  const adminClient = getAdminClient();
+  const { supabase } = await requireAdmin();
 
-  const { data } = await adminClient.from('assets').select('status');
+  const { data } = await supabase.from('assets').select('status');
   const total = data?.length || 0;
   const assigned = (data || []).filter((a) => a.status === 'Assigned').length;
   const available = (data || []).filter((a) => a.status === 'Available').length;

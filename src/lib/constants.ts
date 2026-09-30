@@ -42,3 +42,24 @@ export const STORAGE_KEYS = {
 // Date / timezone
 export const TIMEZONE = 'Asia/Kolkata';
 export const IST_OFFSET_MINUTES = 330; // UTC+5:30
+
+
+
+
+// ============================================
+// Company Settings
+// ============================================
+export const PUBLIC_COMPANY_SETTINGS_FIELDS =
+  'id, company_name, work_start, work_end, half_day_hours, full_day_hours, late_grace_minutes' as const;
+
+export const DEFAULT_COMPANY_SETTINGS = {
+  id: 1,
+  company_name: 'Roster Pro',
+  admin_email: null,
+  work_start: DEFAULT_WORK_START,
+  work_end: DEFAULT_WORK_END,
+  half_day_hours: DEFAULT_HALF_DAY_HOURS,
+  full_day_hours: DEFAULT_FULL_DAY_HOURS,
+  late_grace_minutes: DEFAULT_LATE_GRACE_MINUTES,
+  updated_at: new Date().toISOString(),
+} as const;

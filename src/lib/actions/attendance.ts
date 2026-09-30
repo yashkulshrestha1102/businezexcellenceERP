@@ -1,8 +1,6 @@
 'use server';
 
-import { createClient } from '@/lib/supabase/server';
-import { createClient as createAdminClient } from '@supabase/supabase-js';
-import type { SupabaseClient } from '@supabase/supabase-js';
+import { requireAuth, requireAdmin } from './_shared/auth';
 import { revalidatePath } from 'next/cache';
 import { todayStr, nowTime } from '@/lib/utils/date';
 import {
@@ -10,45 +8,10 @@ import {
   DEFAULT_HALF_DAY_HOURS,
   DEFAULT_LATE_GRACE_MINUTES,
 } from '@/lib/constants';
+import type { SupabaseClient } from '@supabase/supabase-js';
 
-function getAdminClient(): SupabaseClient {
-  const url = process.env.NEXT_PUBLIC_SUPABASE_URL;
-  const serviceKey = process.env.SUPABASE_SERVICE_ROLE_KEY;
-
-  if (!url) throw new Error('Missing NEXT_PUBLIC_SUPABASE_URL');
-  if (!serviceKey) throw new Error('Missing SUPABASE_SERVICE_ROLE_KEY');
-
-  return createAdminClient(url, serviceKey, {
-    auth: { autoRefreshToken: false, persistSession: false },
-  });
-}
-
-async function requireAuth() {
-  const supabase = await createClient();
-  const { data: { user } } = await supabase.auth.getUser();
-  if (!user) throw new Error('Not authenticated');
-
-  const adminClient = getAdminClient();
-  const { data: profile, error } = await adminClient
-    .from('profiles')
-    .select('id, role, name, email')
-    .eq('id', user.id)
-    .maybeSingle();
-
-  if (error) throw new Error('Profile fetch failed: ' + error.message);
-  if (!profile) throw new Error('Profile not found');
-  return { user, profile, adminClient };
-}
-
-async function requireAdmin() {
-  const ctx = await requireAuth();
-  if (ctx.profile.role !== 'admin') throw new Error('Admin only');
-  return ctx;
-}
-
-// Load settings — use `any` for data since Supabase doesn't know our schema
-async function getSettings(adminClient: SupabaseClient) {
-  const { data } = await adminClient
+async function getSettings(supabase: SupabaseClient) {
+  const { data } = await supabase
     .from('company_settings')
     .select('work_start, half_day_hours, late_grace_minutes')
     .eq('id', 1)
@@ -69,11 +32,11 @@ async function getSettings(adminClient: SupabaseClient) {
 
 // ============ EMPLOYEE: CHECK IN ============
 export async function checkIn() {
-  const { profile, adminClient } = await requireAuth();
+  const { profile, supabase } = await requireAuth();
   const today = todayStr();
   const now = nowTime();
 
-  const { data: onLeave } = await adminClient
+  const { data: onLeave } = await supabase
     .from('leaves')
     .select('id')
     .eq('employee_id', profile.id)
@@ -87,7 +50,7 @@ export async function checkIn() {
     throw new Error('Aaj tumhari approved leave hai, check-in ki zaroorat nahi');
   }
 
-  const { data: existing } = await adminClient
+  const { data: existing } = await supabase
     .from('attendance')
     .select('*')
     .eq('employee_id', profile.id)
@@ -109,7 +72,7 @@ export async function checkIn() {
     };
   }
 
-  const settings = await getSettings(adminClient);
+  const settings = await getSettings(supabase);
 
   const [wsH, wsM] = String(settings.work_start).slice(0, 5).split(':').map(Number);
   const [nH, nM] = now.split(':').map(Number);
@@ -127,13 +90,13 @@ export async function checkIn() {
   };
 
   if (existingRow) {
-    const { error } = await adminClient
+    const { error } = await supabase
       .from('attendance')
       .update(payload)
       .eq('id', existingRow.id);
     if (error) throw new Error(error.message);
   } else {
-    const { error } = await adminClient.from('attendance').insert(payload);
+    const { error } = await supabase.from('attendance').insert(payload);
     if (error) throw new Error(error.message);
   }
 
@@ -146,11 +109,11 @@ export async function checkIn() {
 
 // ============ EMPLOYEE: CHECK OUT ============
 export async function checkOut() {
-  const { profile, adminClient } = await requireAuth();
+  const { profile, supabase } = await requireAuth();
   const today = todayStr();
   const now = nowTime();
 
-  const { data: existing } = await adminClient
+  const { data: existing } = await supabase
     .from('attendance')
     .select('*')
     .eq('employee_id', profile.id)
@@ -174,14 +137,14 @@ export async function checkOut() {
     };
   }
 
-  const settings = await getSettings(adminClient);
+  const settings = await getSettings(supabase);
 
   const [h1, m1] = String(existingRow.check_in).slice(0, 5).split(':').map(Number);
   const [h2, m2] = now.split(':').map(Number);
   const hours = (h2 * 60 + m2 - (h1 * 60 + m1)) / 60;
   const short_day = hours < settings.half_day_hours;
 
-  const { error } = await adminClient
+  const { error } = await supabase
     .from('attendance')
     .update({
       check_out: now,
@@ -199,12 +162,12 @@ export async function checkOut() {
   return { success: true, time: now, hours, short_day, alreadyCheckedOut: false };
 }
 
-// ============ GET TODAY'S ATTENDANCE FOR SELF ============
+// ============ GET TODAY'S ATTENDANCE ============
 export async function getMyTodayAttendance() {
-  const { profile, adminClient } = await requireAuth();
+  const { profile, supabase } = await requireAuth();
   const today = todayStr();
 
-  const { data } = await adminClient
+  const { data } = await supabase
     .from('attendance')
     .select('*')
     .eq('employee_id', profile.id)
@@ -216,16 +179,15 @@ export async function getMyTodayAttendance() {
 
 // ============ ADMIN: LIST BY DATE ============
 export async function getAttendanceByDate(date: string) {
-  await requireAdmin();
-  const adminClient = getAdminClient();
+  const { supabase } = await requireAdmin();
 
   const [empRes, attRes] = await Promise.all([
-    adminClient
+    supabase
       .from('profiles')
       .select('id, name, username, dept, designation, role, is_active')
       .eq('is_active', true)
       .order('name'),
-    adminClient.from('attendance').select('*').eq('date', date),
+    supabase.from('attendance').select('*').eq('date', date),
   ]);
 
   const employees = (empRes.data || []) as Array<{
@@ -262,9 +224,8 @@ export async function adminSetAttendance(
     notes?: string;
   }
 ) {
-  await requireAdmin();
-  const adminClient = getAdminClient();
-  const settings = await getSettings(adminClient);
+  const { supabase } = await requireAdmin();
+  const settings = await getSettings(supabase);
 
   let hours = 0;
   let short_day = false;
@@ -288,7 +249,7 @@ export async function adminSetAttendance(
     notes: data.notes || '',
   };
 
-  const { data: existing } = await adminClient
+  const { data: existing } = await supabase
     .from('attendance')
     .select('id')
     .eq('employee_id', employeeId)
@@ -298,13 +259,13 @@ export async function adminSetAttendance(
   const existingRow = existing as { id: string } | null;
 
   if (existingRow) {
-    const { error } = await adminClient
+    const { error } = await supabase
       .from('attendance')
       .update(payload)
       .eq('id', existingRow.id);
     if (error) throw new Error(error.message);
   } else {
-    const { error } = await adminClient.from('attendance').insert(payload);
+    const { error } = await supabase.from('attendance').insert(payload);
     if (error) throw new Error(error.message);
   }
 
@@ -315,9 +276,8 @@ export async function adminSetAttendance(
 
 // ============ ADMIN: CLEAR ============
 export async function adminClearAttendance(employeeId: string, date: string) {
-  await requireAdmin();
-  const adminClient = getAdminClient();
-  const { error } = await adminClient
+  const { supabase } = await requireAdmin();
+  const { error } = await supabase
     .from('attendance')
     .delete()
     .eq('employee_id', employeeId)
@@ -328,12 +288,12 @@ export async function adminClearAttendance(employeeId: string, date: string) {
   return { success: true };
 }
 
-// ============ ADMIN: MARK ALL PRESENT ============
+// ============ ADMIN: MARK ALL PRESENT (Bug Fixed ✅) ============
 export async function adminMarkAllPresent(date: string) {
-  await requireAdmin();
-  const adminClient = getAdminClient();
+  const { supabase } = await requireAdmin();
+  const settings = await getSettings(supabase); // ✅ Settings load karo
 
-  const { data: employees } = await adminClient
+  const { data: employees } = await supabase
     .from('profiles')
     .select('id')
     .eq('is_active', true)
@@ -342,7 +302,7 @@ export async function adminMarkAllPresent(date: string) {
   const empList = (employees || []) as Array<{ id: string }>;
   if (!empList.length) return { success: true, count: 0 };
 
-  const { data: existing } = await adminClient
+  const { data: existing } = await supabase
     .from('attendance')
     .select('employee_id')
     .eq('date', date);
@@ -356,13 +316,13 @@ export async function adminMarkAllPresent(date: string) {
     .map((e) => ({
       employee_id: e.id,
       date,
-      check_in: '09:00',
+      check_in: String(settings.work_start).slice(0, 5), // ✅ Settings se time
       status: 'Present' as const,
       marked_by: 'admin' as const,
     }));
 
   if (inserts.length > 0) {
-    const { error } = await adminClient.from('attendance').insert(inserts);
+    const { error } = await supabase.from('attendance').insert(inserts);
     if (error) throw new Error(error.message);
   }
 
@@ -373,12 +333,11 @@ export async function adminMarkAllPresent(date: string) {
 
 // ============ STATS ============
 export async function getAttendanceStats(date: string) {
-  await requireAdmin();
-  const adminClient = getAdminClient();
+  const { supabase } = await requireAdmin();
 
   const [empRes, attRes] = await Promise.all([
-    adminClient.from('profiles').select('id').eq('is_active', true),
-    adminClient.from('attendance').select('status').eq('date', date),
+    supabase.from('profiles').select('id').eq('is_active', true),
+    supabase.from('attendance').select('status').eq('date', date),
   ]);
 
   const total = (empRes.data || []).length;

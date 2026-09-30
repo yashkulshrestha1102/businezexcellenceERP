@@ -1,5 +1,5 @@
 'use client';
-
+import Link from 'next/link';
 import { useState, useEffect } from 'react';
 import { useRouter } from 'next/navigation';
 import { createClient } from '@/lib/supabase/client';
@@ -81,9 +81,14 @@ export default function LoginPage() {
           </button>
         </form>
 
-        <div className="login-hint">
-          <b>Admin:</b> admin@rosterpro.local / admin123
-        </div>
+        <div style={{ textAlign: 'center', marginTop: 16 }}>
+  <Link
+    href="/forgot-password"
+    style={{ color: 'var(--teal-600)', fontSize: 13, textDecoration: 'none' }}
+  >
+    Forgot password?
+  </Link>
+</div>
       </div>
     </div>
   );

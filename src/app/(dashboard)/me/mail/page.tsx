@@ -3,7 +3,7 @@
 import { useState, useEffect, useCallback } from 'react';
 import { toast } from 'sonner';
 import { fmtDate } from '@/lib/utils/date';
-import { getMyMails, sendMail, deleteMail, getCompanySettings } from '@/lib/actions/mails';
+import { getMyMails, sendMail, deleteMail, getPublicCompanySettings } from '@/lib/actions/mails';
 import { useAuth } from '@/lib/hooks/useAuth';
 
 interface Mail {
@@ -153,17 +153,18 @@ function ComposeModal({
   const [sending, setSending] = useState(false);
 
   useEffect(() => {
-    getCompanySettings()
-      .then((s) => {
-        setForm((f) => ({
-          ...f,
-          to_email: s.admin_email || 'admin@rosterpro.com',
-          body: `Respected Admin,\n\nMai ${profile?.name} (${profile?.designation || ''}, ${profile?.dept || ''}) se apni baat likhna chahta hoon.\n\n[Yahan apni baat likho]\n\nDhanyavaad,\n${profile?.name}\n${profile?.phone || ''}`,
-        }));
-      })
-      .catch(() => {
-        setForm((f) => ({ ...f, to_email: 'admin@rosterpro.com' }));
-      });
+    // NOTE: Employee ko admin_email nahi chahiye — fallback use karo
+getPublicCompanySettings()
+  .then(() => {
+    setForm((f) => ({
+      ...f,
+      to_email: 'admin@rosterpro.com', // ✅ Default, admin ko khud pata hoga
+      body: `Respected Admin,\n\nMai ${profile?.name} (${profile?.designation || ''}, ${profile?.dept || ''}) se apni baat likhna chahta hoon.\n\n[Yahan apni baat likho]\n\nDhanyavaad,\n${profile?.name}\n${profile?.phone || ''}`,
+    }));
+  })
+  .catch(() => {
+    setForm((f) => ({ ...f, to_email: 'admin@rosterpro.com' }));
+  });
   }, [profile]);
 
   async function handleSend(openGmail: boolean) {

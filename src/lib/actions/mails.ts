@@ -1,44 +1,16 @@
 'use server';
 
-import { createClient } from '@/lib/supabase/server';
-import { createClient as createAdminClient } from '@supabase/supabase-js';
+import {
+  requireAuth,
+  requireAdmin,
+  createUserClient,
+} from './_shared/auth';
 import { revalidatePath } from 'next/cache';
-
-function getAdminClient() {
-  const url = process.env.NEXT_PUBLIC_SUPABASE_URL;
-  const serviceKey = process.env.SUPABASE_SERVICE_ROLE_KEY;
-
-  if (!url) throw new Error('Missing NEXT_PUBLIC_SUPABASE_URL');
-  if (!serviceKey) throw new Error('Missing SUPABASE_SERVICE_ROLE_KEY');
-
-  return createAdminClient(url, serviceKey, {
-    auth: { autoRefreshToken: false, persistSession: false },
-  });
-}
-
-async function requireAuth() {
-  const supabase = await createClient();
-  const { data: { user } } = await supabase.auth.getUser();
-  if (!user) throw new Error('Not authenticated');
-
-  const adminClient = getAdminClient();
-  const { data: profile, error } = await adminClient
-    .from('profiles')
-    .select('id, role, name, email')
-    .eq('id', user.id)
-    .maybeSingle();
-
-  if (error) throw new Error('Profile fetch failed: ' + error.message);
-  if (!profile) throw new Error('Profile not found');
-
-  return { user, profile, adminClient };
-}
-
-async function requireAdmin() {
-  const ctx = await requireAuth();
-  if (ctx.profile.role !== 'admin') throw new Error('Admin only');
-  return ctx;
-}
+import {
+  PUBLIC_COMPANY_SETTINGS_FIELDS,
+  DEFAULT_COMPANY_SETTINGS,
+} from '@/lib/constants';
+import type { CompanySettings } from '@/types/database';
 
 // ============ SEND MAIL ============
 export async function sendMail(input: {
@@ -46,7 +18,7 @@ export async function sendMail(input: {
   subject: string;
   body: string;
 }) {
-  const { profile, adminClient } = await requireAuth();
+  const { profile, supabase } = await requireAuth();
 
   if (!input.to_email.trim()) throw new Error('Recipient email required');
   if (!input.subject.trim()) throw new Error('Subject required');
@@ -55,7 +27,7 @@ export async function sendMail(input: {
     throw new Error('Invalid email format');
   }
 
-  const { data, error } = await adminClient
+  const { data, error } = await supabase
     .from('mails')
     .insert({
       from_user: profile.id,
@@ -74,12 +46,11 @@ export async function sendMail(input: {
   return data;
 }
 
-// ============ GET ALL MAILS ============
+// ============ GET ALL MAILS (Admin only) ============
 export async function getAllMails() {
-  const { profile, adminClient } = await requireAuth();
-  if (profile.role !== 'admin') throw new Error('Admin only');
+  const { supabase } = await requireAdmin();
 
-  const { data, error } = await adminClient
+  const { data, error } = await supabase
     .from('mails')
     .select('*')
     .order('sent_at', { ascending: false });
@@ -90,9 +61,9 @@ export async function getAllMails() {
 
 // ============ GET MY MAILS ============
 export async function getMyMails() {
-  const { profile, adminClient } = await requireAuth();
+  const { profile, supabase } = await requireAuth();
 
-  const { data, error } = await adminClient
+  const { data, error } = await supabase
     .from('mails')
     .select('*')
     .eq('from_user', profile.id)
@@ -104,9 +75,9 @@ export async function getMyMails() {
 
 // ============ DELETE MAIL ============
 export async function deleteMail(id: string) {
-  const { profile, adminClient } = await requireAuth();
+  const { profile, supabase } = await requireAuth();
 
-  const { data: mail } = await adminClient
+  const { data: mail } = await supabase
     .from('mails')
     .select('from_user')
     .eq('id', id)
@@ -117,7 +88,7 @@ export async function deleteMail(id: string) {
     throw new Error('Not authorized');
   }
 
-  const { error } = await adminClient.from('mails').delete().eq('id', id);
+  const { error } = await supabase.from('mails').delete().eq('id', id);
   if (error) throw new Error(error.message);
 
   revalidatePath('/mail');
@@ -125,11 +96,40 @@ export async function deleteMail(id: string) {
   return { success: true };
 }
 
-// ============ GET COMPANY SETTINGS ============
-export async function getCompanySettings() {
-  const adminClient = getAdminClient();
+// ============================================================
+// COMPANY SETTINGS
+// ============================================================
 
-  const { data, error } = await adminClient
+/**
+ * ✅ PUBLIC-SAFE settings — no admin_email exposure.
+ * Use this for: useCompanySettings hook, dashboard display, attendance calculations.
+ */
+export async function getPublicCompanySettings() {
+  const supabase = await createUserClient();
+  const {
+    data: { user },
+  } = await supabase.auth.getUser();
+  if (!user) throw new Error('Not authenticated');
+
+  const { data, error } = await supabase
+    .from('company_settings')
+    .select(PUBLIC_COMPANY_SETTINGS_FIELDS)
+    .eq('id', 1)
+    .maybeSingle();
+
+  if (error) throw new Error(error.message);
+
+  return data || DEFAULT_COMPANY_SETTINGS;
+}
+
+/**
+ * ✅ ADMIN-ONLY settings — includes admin_email + all fields.
+ * Use this for: settings page, mail compose default recipient.
+ */
+export async function getCompanySettings(): Promise<CompanySettings> {
+  const { supabase } = await requireAuth();
+
+  const { data, error } = await supabase
     .from('company_settings')
     .select('*')
     .eq('id', 1)
@@ -137,21 +137,10 @@ export async function getCompanySettings() {
 
   if (error) throw new Error(error.message);
 
-  // Fallback if no row
-  return data || {
-    id: 1,
-    company_name: 'Roster Pro',
-    admin_email: null,
-    work_start: '09:30',
-    work_end: '18:30',
-    half_day_hours: 4,
-    full_day_hours: 8,
-    late_grace_minutes: 15,
-    updated_at: new Date().toISOString(),
-  };
+  return (data as CompanySettings) || DEFAULT_COMPANY_SETTINGS;
 }
 
-// ============ UPDATE COMPANY SETTINGS ============
+// ============ UPDATE COMPANY SETTINGS (Admin only) ============
 export async function updateCompanySettings(input: {
   company_name?: string;
   admin_email?: string;
@@ -161,19 +150,23 @@ export async function updateCompanySettings(input: {
   full_day_hours?: number;
   late_grace_minutes?: number;
 }) {
-  const { profile, adminClient } = await requireAdmin();
-  if (profile.role !== 'admin') throw new Error('Admin only');
+  const { supabase } = await requireAdmin();
 
   const update: Record<string, unknown> = {};
-  if (input.company_name !== undefined) update.company_name = input.company_name.trim();
-  if (input.admin_email !== undefined) update.admin_email = input.admin_email.trim().toLowerCase();
+  if (input.company_name !== undefined)
+    update.company_name = input.company_name.trim();
+  if (input.admin_email !== undefined)
+    update.admin_email = input.admin_email.trim().toLowerCase();
   if (input.work_start !== undefined) update.work_start = input.work_start;
   if (input.work_end !== undefined) update.work_end = input.work_end;
-  if (input.half_day_hours !== undefined) update.half_day_hours = input.half_day_hours;
-  if (input.full_day_hours !== undefined) update.full_day_hours = input.full_day_hours;
-  if (input.late_grace_minutes !== undefined) update.late_grace_minutes = input.late_grace_minutes;
+  if (input.half_day_hours !== undefined)
+    update.half_day_hours = input.half_day_hours;
+  if (input.full_day_hours !== undefined)
+    update.full_day_hours = input.full_day_hours;
+  if (input.late_grace_minutes !== undefined)
+    update.late_grace_minutes = input.late_grace_minutes;
 
-  const { error } = await adminClient
+  const { error } = await supabase
     .from('company_settings')
     .update(update)
     .eq('id', 1);
