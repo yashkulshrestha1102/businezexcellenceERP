@@ -20,6 +20,20 @@ export default function LoginPage() {
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, []);
 
+
+
+
+   // ✅ Detect recovery hash and forward to /reset-password
+  useEffect(() => {
+    const hash = window.location.hash;
+    if (hash && hash.includes('type=recovery')) {
+      router.replace('/reset-password' + hash);
+      return;
+    }
+    loadProfile();
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, []);
+
   async function handleLogin(e: React.FormEvent) {
     e.preventDefault();
     if (!email || !password) {
