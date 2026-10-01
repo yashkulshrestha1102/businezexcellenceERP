@@ -1,10 +1,5 @@
 import type { NextConfig } from 'next';
 
-// Validate env at build time
-if (process.env.NODE_ENV !== 'test') {
-  require('./src/lib/env');
-}
-
 const nextConfig: NextConfig = {
   reactStrictMode: true,
   poweredByHeader: false,

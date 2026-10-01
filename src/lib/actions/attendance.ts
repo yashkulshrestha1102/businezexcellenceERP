@@ -5,7 +5,7 @@ import { revalidatePath } from 'next/cache';
 import { todayStr, nowTime } from '@/lib/utils/date';
 
 
-import { checkRateLimit, RATE_LIMITS, getClientIp } from '@/lib/rate-limit';
+import { checkRateLimit, RATE_LIMITS } from '@/lib/rate-limit';
 import { logAudit, getRequestMeta } from '@/lib/audit';
 import {
   DEFAULT_WORK_START,
@@ -38,7 +38,6 @@ async function getSettings(supabase: SupabaseClient) {
 export async function checkIn() {
   const { profile, supabase } = await requireAuth();
   // ✅ Rate limit
-  const ip = await getClientIp();
   const limit = checkRateLimit(`checkin:${profile.id}`, RATE_LIMITS.CHECK_IN);
   if (!limit.success) {
     throw new Error(`Too many attempts. Wait ${limit.retryAfterSeconds}s`);

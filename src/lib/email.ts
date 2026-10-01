@@ -76,7 +76,7 @@ export async function sendEmail(args: SendArgs): Promise<{ success: boolean; err
   }
 
   try {
-    const { data, error } = await resend.emails.send({
+    const { error } = await resend.emails.send({
       from: `${env.RESEND_FROM_NAME} <${env.RESEND_FROM_EMAIL}>`,
       to: Array.isArray(args.to) ? args.to : [args.to],
       subject: args.subject,

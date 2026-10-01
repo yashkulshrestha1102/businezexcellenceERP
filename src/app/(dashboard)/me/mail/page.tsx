@@ -153,26 +153,20 @@ function ComposeModal({
   onSent: () => void;
 }) {
   const { profile } = useAuth();
-  const [form, setForm] = useState({
+
+  // ✅ Prefill body using useState lazy initializer — no effect needed
+  const [form, setForm] = useState(() => ({
     to_email: '',
     subject: '',
-    body: '',
-  });
+    body: `Respected Admin,\n\nMai ${profile?.name || ''} (${
+      profile?.designation || ''
+    }, ${
+      profile?.dept || ''
+    }) se apni baat likhna chahta hoon.\n\n[Yahan apni baat likho]\n\nDhanyavaad,\n${
+      profile?.name || ''
+    }\n${profile?.phone || ''}`,
+  }));
   const [sending, setSending] = useState(false);
-
-  // ✅ Admin email is resolved SERVER-SIDE in sendMail()
-  // We don't fetch it client-side for security.
-  // Just prefill the compose body with signature.
-  useEffect(() => {
-    setForm((f) => ({
-      ...f,
-      body: `Respected Admin,\n\nMai ${profile?.name || ''} (${
-        profile?.designation || ''
-      }, ${profile?.dept || ''}) se apni baat likhna chahta hoon.\n\n[Yahan apni baat likho]\n\nDhanyavaad,\n${
-        profile?.name || ''
-      }\n${profile?.phone || ''}`,
-    }));
-  }, [profile]);
 
   async function handleSend(openGmail: boolean) {
     if (!form.subject.trim()) {
@@ -186,16 +180,14 @@ function ComposeModal({
     try {
       // Server resolves `to_email` from admin_email in settings if empty
       await sendMail({
-        to_email: form.to_email, // empty → server fills
+        to_email: form.to_email,
         subject: form.subject,
         body: form.body,
       });
 
       if (openGmail) {
-        // For Gmail open, we need a real email. If empty, ask user.
         let recipientEmail = form.to_email.trim();
 
-        // If no recipient, ask the user (we can't fetch admin email client-side)
         if (!recipientEmail) {
           const input = window.prompt(
             'Admin ka email daalo (ye Gmail mein prefill hoga):',

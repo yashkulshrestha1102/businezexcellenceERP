@@ -13,7 +13,6 @@ import {
 import { logAudit, getRequestMeta } from '@/lib/audit';
 import { checkRateLimit, RATE_LIMITS, getClientIp } from '@/lib/rate-limit';
 import { sendEmail } from '@/lib/email';
-import { env } from '@/lib/env';
 import type { CompanySettings } from '@/types/database';
 
 // ============ SEND MAIL (logged + optional real email) ============
