@@ -36,3 +36,30 @@ export type MarkedBy = 'self' | 'admin';
 
 // ============ RE-EXPORTS ============
 export type { Database };
+
+
+
+
+
+
+// ============================================
+// PHASE 2: HOLIDAYS
+// ============================================
+export interface Holiday {
+  id: string;
+  name: string;
+  date: string;
+  type: 'Public' | 'Optional' | 'Company';
+  description: string | null;
+  is_recurring: boolean;
+  created_by: string | null;
+  created_at: string;
+  updated_at: string;
+}
+
+export interface WeekOff {
+  id: string;
+  day_of_week: number;
+  is_active: boolean;
+  updated_at: string;
+}

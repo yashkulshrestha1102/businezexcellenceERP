@@ -22,12 +22,14 @@ const ADMIN_NAV = [
       { label: 'Attendance', href: '/attendance', icon: '🕒' },
       { label: 'Leave', href: '/leave', icon: '🌴' },
       { label: 'Assets', href: '/assets', icon: '💻' },
+      { label: 'Holidays', href: '/holidays', icon: '🎉' },
     ],
   },
   {
     section: 'Tools',
     items: [
       { label: 'Mail', href: '/mail', icon: '✉️' },
+      { label: 'Employee Report', href: '/reports/employee-attendance', icon: '📊' },
       { label: 'Reports', href: '/reports', icon: '📈' },
       { label: 'Settings', href: '/settings', icon: '⚙️' },
     ],
@@ -46,6 +48,13 @@ const EMPLOYEE_NAV = [
       { label: 'My Leave', href: '/me/leave', icon: '🌴' },
       { label: 'My Assets', href: '/me/assets', icon: '💻' },
       { label: 'My Profile', href: '/me/profile', icon: '👤' },
+    ],
+  },
+  {
+    section: 'Reports',
+    items: [
+      { label: 'My Attendance Report', href: '/me/reports', icon: '📊' }, // ✅ NEW
+      { label: 'Holidays', href: '/holidays', icon: '🎉' }, // ✅ NEW — employees bhi dekh sake
     ],
   },
   {

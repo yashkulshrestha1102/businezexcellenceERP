@@ -1,17 +1,22 @@
 'use client';
 
-import { useState } from 'react';
+import { useState, useEffect } from 'react';
 import { toast } from 'sonner';
+import { getEmployees } from '@/lib/actions/employees';
 import {
-  getMyAttendanceReport,
+  getEmployeeAttendanceReport,
   type AttendanceReportSummary,
 } from '@/lib/actions/reports';
 import { downloadCSV } from '@/lib/utils/export';
 import { fmtDate, todayStr } from '@/lib/utils/date';
 import { TableSkeleton } from '@/components/ui/Skeleton';
+import type { Profile } from '@/types/database';
 
-export default function MyReportsPage() {
+export default function EmployeeAttendanceReportPage() {
+  const [employees, setEmployees] = useState<Profile[]>([]);
+  const [selectedEmployee, setSelectedEmployee] = useState('');
   const [fromDate, setFromDate] = useState(() => {
+    // Default: 3 months back
     const d = new Date();
     d.setMonth(d.getMonth() - 3);
     return d.toISOString().slice(0, 10);
@@ -20,14 +25,34 @@ export default function MyReportsPage() {
   const [report, setReport] = useState<AttendanceReportSummary | null>(null);
   const [loading, setLoading] = useState(false);
 
+  // Load employees once
+  useEffect(() => {
+    getEmployees()
+      .then((d) => {
+        const list = d as Profile[];
+        setEmployees(list);
+        if (list.length > 0) setSelectedEmployee(list[0].id);
+      })
+      .catch((err) => toast.error((err as Error).message));
+  }, []);
+
   async function generateReport() {
+    if (!selectedEmployee) {
+      toast.error('Employee select karo');
+      return;
+    }
     if (toDate < fromDate) {
       toast.error('To date, From se pehle nahi');
       return;
     }
+
     setLoading(true);
     try {
-      const r = await getMyAttendanceReport({ fromDate, toDate });
+      const r = await getEmployeeAttendanceReport({
+        employeeId: selectedEmployee,
+        fromDate,
+        toDate,
+      });
       setReport(r);
       toast.success(`${r.rows.length} din ka data load hua`);
     } catch (err) {
@@ -52,7 +77,7 @@ export default function MyReportsPage() {
         Notes: r.notes || '',
       }));
       downloadCSV(
-        `my-attendance-${fromDate}-to-${toDate}.csv`,
+        `attendance-${report.employee.name}-${fromDate}-to-${toDate}.csv`,
         rows
       );
       toast.success('Export ready');
@@ -61,6 +86,7 @@ export default function MyReportsPage() {
     }
   }
 
+  // Quick range presets
   function setLast30Days() {
     const d = new Date();
     d.setDate(d.getDate() - 30);
@@ -95,19 +121,35 @@ export default function MyReportsPage() {
     <div>
       <div className="page-head">
         <div>
-          <h1>My Attendance Report</h1>
-          <p>Apna historical attendance dekho aur download karo</p>
+          <h1>Employee Attendance Report</h1>
+          <p>Kisi bhi employee ka historical data dekho aur export karo</p>
         </div>
       </div>
 
+      {/* Filters */}
       <div className="panel">
         <div className="panel-head">
-          <h3>🔍 Date Range Select Karo</h3>
+          <h3>🔍 Filters</h3>
         </div>
         <div className="panel-body">
+          <div className="field">
+            <label>Employee *</label>
+            <select
+              value={selectedEmployee}
+              onChange={(e) => setSelectedEmployee(e.target.value)}
+            >
+              <option value="">— Select Employee —</option>
+              {employees.map((emp) => (
+                <option key={emp.id} value={emp.id}>
+                  {emp.name} ({emp.username}) {emp.dept ? `— ${emp.dept}` : ''}
+                </option>
+              ))}
+            </select>
+          </div>
+
           <div className="grid2">
             <div className="field">
-              <label>From *</label>
+              <label>From Date *</label>
               <input
                 type="date"
                 value={fromDate}
@@ -115,7 +157,7 @@ export default function MyReportsPage() {
               />
             </div>
             <div className="field">
-              <label>To *</label>
+              <label>To Date *</label>
               <input
                 type="date"
                 value={toDate}
@@ -144,16 +186,23 @@ export default function MyReportsPage() {
         </div>
       </div>
 
+      {/* Report */}
       {loading && <TableSkeleton rows={8} />}
 
       {!loading && report && (
         <>
+          {/* Summary */}
           <div className="panel">
             <div className="panel-head">
               <div>
-                <h3>📊 Summary</h3>
+                <h3>📊 {report.employee.name} — Summary</h3>
                 <div className="sub">
                   {fmtDate(report.range.from)} → {fmtDate(report.range.to)}
+                  {' • '}
+                  {report.employee.dept || 'No dept'}
+                  {report.employee.designation
+                    ? ` • ${report.employee.designation}`
+                    : ''}
                 </div>
               </div>
               <button
@@ -169,40 +218,49 @@ export default function MyReportsPage() {
                 <div className="stat">
                   <div className="lbl">Total Days</div>
                   <div className="val">{report.totals.totalDays}</div>
+                  <div className="sub">in range</div>
                 </div>
                 <div className="stat">
                   <div className="lbl">Present</div>
                   <div className="val" style={{ color: 'var(--ok)' }}>
                     {report.totals.present}
                   </div>
+                  <div className="sub">+ {report.totals.half} half</div>
                 </div>
                 <div className="stat">
                   <div className="lbl">Absent</div>
                   <div className="val" style={{ color: 'var(--danger)' }}>
                     {report.totals.absent}
                   </div>
+                  <div className="sub">working days</div>
                 </div>
                 <div className="stat">
-                  <div className="lbl">Late</div>
+                  <div className="lbl">Late Count</div>
                   <div className="val" style={{ color: 'var(--warn)' }}>
                     {report.totals.lateCount}
                   </div>
+                  <div className="sub">{report.totals.shortDayCount} short days</div>
+                </div>
+                <div className="stat">
+                  <div className="lbl">Holidays</div>
+                  <div className="val" style={{ color: 'var(--teal-600)' }}>
+                    {report.totals.holidays}
+                  </div>
+                  <div className="sub">+ {report.totals.weekoffs} week-offs</div>
                 </div>
                 <div className="stat">
                   <div className="lbl">Total Hours</div>
                   <div className="val">{report.totals.totalHours}h</div>
-                </div>
-                <div className="stat">
-                  <div className="lbl">Holidays</div>
-                  <div className="val">{report.totals.holidays}</div>
+                  <div className="sub">all check-ins</div>
                 </div>
               </div>
             </div>
           </div>
 
+          {/* Detailed Table */}
           <div className="panel">
             <div className="panel-head">
-              <h3>📋 Day-wise</h3>
+              <h3>📋 Day-wise Breakdown</h3>
               <div className="sub">{report.rows.length} rows</div>
             </div>
             <div className="panel-body" style={{ padding: 0 }}>
@@ -217,6 +275,7 @@ export default function MyReportsPage() {
                       <th>Out</th>
                       <th>Hours</th>
                       <th>Flags</th>
+                      <th>Notes</th>
                     </tr>
                   </thead>
                   <tbody>
@@ -256,6 +315,9 @@ export default function MyReportsPage() {
                             <span className="tag tag-rose">Short</span>
                           )}
                         </td>
+                        <td style={{ fontSize: 12, color: 'var(--muted)' }}>
+                          {r.notes || '—'}
+                        </td>
                       </tr>
                     ))}
                   </tbody>
@@ -269,7 +331,7 @@ export default function MyReportsPage() {
       {!loading && !report && (
         <div className="empty">
           <div className="big">📊</div>
-          Date range select karke Generate Report dabao
+          Employee aur date range select karke Generate Report dabao
         </div>
       )}
     </div>
