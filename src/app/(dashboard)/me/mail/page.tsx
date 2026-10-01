@@ -1,14 +1,9 @@
 'use client';
 
 import { useState, useEffect, useCallback } from 'react';
-import { toast } from 'sonner'; // ✅ Fixed
+import { toast } from 'sonner';
 import { fmtDate } from '@/lib/utils/date';
-import {
-  getMyMails,
-  sendMail,
-  deleteMail,
-  getPublicCompanySettings,
-} from '@/lib/actions/mails';
+import { getMyMails, sendMail, deleteMail } from '@/lib/actions/mails';
 import { useAuth } from '@/lib/hooks/useAuth';
 import { TableSkeleton } from '@/components/ui/Skeleton';
 
@@ -41,14 +36,14 @@ export default function MyMailPage() {
   }, []);
 
   useEffect(() => {
-  // eslint-disable-next-line react-hooks/set-state-in-effect
-  load();
-}, [load]);
+    // eslint-disable-next-line react-hooks/set-state-in-effect
+    load();
+  }, [load]);
 
   async function handleDelete(id: string) {
     try {
       await deleteMail(id);
-      toast.success('Delete');
+      toast.success('Mail deleted');
       load();
     } catch (err) {
       toast.error((err as Error).message);
@@ -72,7 +67,8 @@ export default function MyMailPage() {
       </div>
 
       <div className="notice notice-info">
-        ⚡ <b>Open in Gmail</b> dabao → Gmail khulega pre-filled, wahan edit karke send karo.
+        ⚡ <b>Open in Gmail</b> dabao → Gmail khulega pre-filled, wahan edit
+        karke send karo.
       </div>
 
       <div className="panel">
@@ -164,34 +160,66 @@ function ComposeModal({
   });
   const [sending, setSending] = useState(false);
 
+  // ✅ Admin email is resolved SERVER-SIDE in sendMail()
+  // We don't fetch it client-side for security.
+  // Just prefill the compose body with signature.
   useEffect(() => {
-    getPublicCompanySettings()
-      .then((s) => {
-        setForm((f) => ({
-          ...f,
-          to_email: s.admin_email || 'admin@rosterpro.com',
-          body: `Respected Admin,\n\nMai ${profile?.name} (${profile?.designation || ''}, ${profile?.dept || ''}) se apni baat likhna chahta hoon.\n\n[Yahan apni baat likho]\n\nDhanyavaad,\n${profile?.name}\n${profile?.phone || ''}`,
-        }));
-      })
-      .catch(() => {
-        setForm((f) => ({ ...f, to_email: 'admin@rosterpro.com' }));
-      });
+    setForm((f) => ({
+      ...f,
+      body: `Respected Admin,\n\nMai ${profile?.name || ''} (${
+        profile?.designation || ''
+      }, ${profile?.dept || ''}) se apni baat likhna chahta hoon.\n\n[Yahan apni baat likho]\n\nDhanyavaad,\n${
+        profile?.name || ''
+      }\n${profile?.phone || ''}`,
+    }));
   }, [profile]);
 
   async function handleSend(openGmail: boolean) {
-    if (!form.to_email || !form.subject || !form.body) {
-      return toast.error('Sab fields bharo');
+    if (!form.subject.trim()) {
+      return toast.error('Subject daalo');
     }
+    if (!form.body.trim()) {
+      return toast.error('Body khali hai');
+    }
+
     setSending(true);
     try {
-      await sendMail(form);
+      // Server resolves `to_email` from admin_email in settings if empty
+      await sendMail({
+        to_email: form.to_email, // empty → server fills
+        subject: form.subject,
+        body: form.body,
+      });
+
       if (openGmail) {
-        const url = `https://mail.google.com/mail/?view=cm&fs=1&to=${encodeURIComponent(form.to_email)}&su=${encodeURIComponent(form.subject)}&body=${encodeURIComponent(form.body)}`;
+        // For Gmail open, we need a real email. If empty, ask user.
+        let recipientEmail = form.to_email.trim();
+
+        // If no recipient, ask the user (we can't fetch admin email client-side)
+        if (!recipientEmail) {
+          const input = window.prompt(
+            'Admin ka email daalo (ye Gmail mein prefill hoga):',
+            ''
+          );
+          if (!input || !input.trim()) {
+            toast.info('Gmail cancel — mail logged in system');
+            onSent();
+            return;
+          }
+          recipientEmail = input.trim();
+        }
+
+        const url = `https://mail.google.com/mail/?view=cm&fs=1&to=${encodeURIComponent(
+          recipientEmail
+        )}&su=${encodeURIComponent(form.subject)}&body=${encodeURIComponent(
+          form.body
+        )}`;
         window.open(url, '_blank');
         toast.success('Gmail khul gaya');
       } else {
-        toast.success('Mail log ho gaya');
+        toast.success('Mail bhej diya');
       }
+
       onSent();
     } catch (err) {
       toast.error((err as Error).message);
@@ -211,10 +239,11 @@ function ComposeModal({
         </div>
         <div className="modal-body">
           <div className="field">
-            <label>To</label>
+            <label>To (optional — server admin email use karega)</label>
             <input
               value={form.to_email}
               onChange={(e) => setForm({ ...form, to_email: e.target.value })}
+              placeholder="Leave blank to send to admin"
             />
           </div>
           <div className="field">
@@ -246,11 +275,22 @@ function ComposeModal({
               onClick={() => handleSend(true)}
               disabled={sending}
             >
-              📧 Open in Gmail
+              {sending ? 'Sending...' : '📧 Open in Gmail'}
+            </button>
+            <button
+              className="btn btn-sm btn-ghost"
+              onClick={() => handleSend(false)}
+              disabled={sending}
+            >
+              {sending ? 'Sending...' : '📨 Send via System'}
             </button>
             <button
               className="btn btn-sm btn-ghost"
               onClick={() => {
+                if (!form.body.trim()) {
+                  toast.error('Body khali hai');
+                  return;
+                }
                 navigator.clipboard.writeText(form.body);
                 toast.success('Copy ho gayi');
               }}

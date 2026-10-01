@@ -2,7 +2,9 @@
 
 import { requireAdmin, createServiceClient } from './_shared/auth';
 import { revalidatePath } from 'next/cache';
-import { MIN_PASSWORD_LENGTH } from '@/lib/constants';
+import { MIN_PASSWORD_LENGTH, APP_URL } from '@/lib/constants';
+import { logAudit, getRequestMeta } from '@/lib/audit';
+import { sendWelcomeEmail } from '@/lib/email';
 
 interface EmployeeInput {
   name: string;
@@ -20,20 +22,18 @@ interface EmployeeInput {
 // ============ LIST ============
 export async function getEmployees() {
   const { supabase } = await requireAdmin();
-
   const { data, error } = await supabase
     .from('profiles')
     .select('*')
     .order('created_at', { ascending: false });
-
   if (error) throw new Error(error.message);
   return data || [];
 }
 
-// ============ CREATE (needs service role for auth.admin) ============
+// ============ CREATE ============
 export async function createEmployee(input: EmployeeInput) {
-  await requireAdmin(); // ✅ Auth check
-  const adminClient = createServiceClient(); // ✅ Service role for auth.admin only
+  const { profile: adminProfile } = await requireAdmin();
+  const adminClient = createServiceClient();
 
   if (!input.name || !input.username || !input.email || !input.password) {
     throw new Error('Name, username, email, and password are required');
@@ -42,16 +42,17 @@ export async function createEmployee(input: EmployeeInput) {
     throw new Error(`Password must be at least ${MIN_PASSWORD_LENGTH} characters`);
   }
 
-  const { data: authData, error: authError } = await adminClient.auth.admin.createUser({
-    email: input.email.trim().toLowerCase(),
-    password: input.password,
-    email_confirm: true,
-    user_metadata: {
-      username: input.username.trim().toLowerCase(),
-      name: input.name.trim(),
-      role: input.role || 'employee',
-    },
-  });
+  const { data: authData, error: authError } =
+    await adminClient.auth.admin.createUser({
+      email: input.email.trim().toLowerCase(),
+      password: input.password,
+      email_confirm: true,
+      user_metadata: {
+        username: input.username.trim().toLowerCase(),
+        name: input.name.trim(),
+        role: input.role || 'employee',
+      },
+    });
 
   if (authError) throw new Error(authError.message);
   if (!authData.user) throw new Error('Failed to create user');
@@ -77,6 +78,34 @@ export async function createEmployee(input: EmployeeInput) {
     throw new Error(updateError.message);
   }
 
+  // ✅ Audit
+  const meta = await getRequestMeta();
+  await logAudit({
+    actor_id: adminProfile.id,
+    actor_email: adminProfile.email,
+    action: 'employee.create',
+    entity_type: 'employee',
+    entity_id: authData.user.id,
+    new_data: {
+      email: input.email,
+      name: input.name,
+      role: input.role || 'employee',
+    },
+    ip_address: meta.ip,
+    user_agent: meta.userAgent,
+  });
+
+  // ✅ Welcome email (non-blocking)
+  if (input.password) {
+    sendWelcomeEmail({
+      employeeName: input.name,
+      employeeEmail: input.email.trim().toLowerCase(),
+      username: input.username.trim().toLowerCase(),
+      tempPassword: input.password,
+      loginUrl: `${APP_URL}/login`,
+    }).catch((err) => console.error('[welcome email]', err));
+  }
+
   revalidatePath('/employees');
   revalidatePath('/dashboard');
   return { success: true, id: authData.user.id };
@@ -84,7 +113,7 @@ export async function createEmployee(input: EmployeeInput) {
 
 // ============ UPDATE ============
 export async function updateEmployee(id: string, input: Partial<EmployeeInput>) {
-  const { user, supabase } = await requireAdmin();
+  const { user, supabase, profile: adminProfile } = await requireAdmin();
   const adminClient = createServiceClient();
 
   if (id === user.id && input.role && input.role !== 'admin') {
@@ -110,10 +139,13 @@ export async function updateEmployee(id: string, input: Partial<EmployeeInput>) 
   }
 
   if (input.email) {
-    const { error: emailError } = await adminClient.auth.admin.updateUserById(id, {
-      email: input.email.trim().toLowerCase(),
-      email_confirm: true,
-    });
+    const { error: emailError } = await adminClient.auth.admin.updateUserById(
+      id,
+      {
+        email: input.email.trim().toLowerCase(),
+        email_confirm: true,
+      }
+    );
     if (emailError) throw new Error(emailError.message);
   }
 
@@ -124,6 +156,19 @@ export async function updateEmployee(id: string, input: Partial<EmployeeInput>) 
 
   if (error) throw new Error(error.message);
 
+  // ✅ Audit
+  const meta = await getRequestMeta();
+  await logAudit({
+    actor_id: adminProfile.id,
+    actor_email: adminProfile.email,
+    action: 'employee.update',
+    entity_type: 'employee',
+    entity_id: id,
+    new_data: updateData,
+    ip_address: meta.ip,
+    user_agent: meta.userAgent,
+  });
+
   revalidatePath('/employees');
   revalidatePath('/dashboard');
   return { success: true };
@@ -131,13 +176,25 @@ export async function updateEmployee(id: string, input: Partial<EmployeeInput>) 
 
 // ============ DELETE ============
 export async function deleteEmployee(id: string) {
-  const { user } = await requireAdmin();
+  const { user, profile: adminProfile } = await requireAdmin();
   const adminClient = createServiceClient();
 
   if (user.id === id) throw new Error('You cannot delete your own account');
 
   const { error } = await adminClient.auth.admin.deleteUser(id);
   if (error) throw new Error(error.message);
+
+  // ✅ Audit
+  const meta = await getRequestMeta();
+  await logAudit({
+    actor_id: adminProfile.id,
+    actor_email: adminProfile.email,
+    action: 'employee.delete',
+    entity_type: 'employee',
+    entity_id: id,
+    ip_address: meta.ip,
+    user_agent: meta.userAgent,
+  });
 
   revalidatePath('/employees');
   revalidatePath('/dashboard');
@@ -147,13 +204,11 @@ export async function deleteEmployee(id: string) {
 // ============ GET SINGLE ============
 export async function getEmployee(id: string) {
   const { supabase } = await requireAdmin();
-
   const { data, error } = await supabase
     .from('profiles')
     .select('*')
     .eq('id', id)
     .maybeSingle();
-
   if (error) throw new Error(error.message);
   return data;
 }

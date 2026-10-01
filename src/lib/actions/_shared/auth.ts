@@ -1,9 +1,12 @@
+import 'server-only';
 import { createClient } from '@/lib/supabase/server';
 import {
   createClient as createAdminClient,
   type SupabaseClient,
 } from '@supabase/supabase-js';
 import type { Profile } from '@/types/database';
+import { env } from '@/lib/env';
+import { ERROR_MESSAGES } from '@/lib/constants';
 
 /**
  * User-scoped Supabase client (RLS enforced).
@@ -17,14 +20,17 @@ export async function createUserClient() {
  * NEVER expose to client components.
  */
 export function createServiceClient(): SupabaseClient {
-  const url = process.env.NEXT_PUBLIC_SUPABASE_URL;
-  const serviceKey = process.env.SUPABASE_SERVICE_ROLE_KEY;
+  const url = env.NEXT_PUBLIC_SUPABASE_URL;
+  const serviceKey = env.SUPABASE_SERVICE_ROLE_KEY;
 
   if (!url) throw new Error('Missing NEXT_PUBLIC_SUPABASE_URL');
   if (!serviceKey) throw new Error('Missing SUPABASE_SERVICE_ROLE_KEY');
 
   return createAdminClient(url, serviceKey, {
-    auth: { autoRefreshToken: false, persistSession: false },
+    auth: {
+      autoRefreshToken: false,
+      persistSession: false,
+    },
   });
 }
 
@@ -43,7 +49,7 @@ export async function requireAuth(): Promise<AuthContext> {
   } = await supabase.auth.getUser();
 
   if (authError || !user) {
-    throw new Error('Not authenticated');
+    throw new Error(ERROR_MESSAGES.NOT_AUTHENTICATED);
   }
 
   const { data: profile, error: profileError } = await supabase
@@ -52,10 +58,11 @@ export async function requireAuth(): Promise<AuthContext> {
     .eq('id', user.id)
     .maybeSingle();
 
-  if (profileError)
+  if (profileError) {
     throw new Error('Profile fetch failed: ' + profileError.message);
-  if (!profile) throw new Error('Profile not found');
-  if (!profile.is_active) throw new Error('Account is inactive');
+  }
+  if (!profile) throw new Error(ERROR_MESSAGES.PROFILE_NOT_FOUND);
+  if (!profile.is_active) throw new Error(ERROR_MESSAGES.ACCOUNT_INACTIVE);
 
   return {
     user: { id: user.id, email: user.email || '' },
@@ -68,7 +75,7 @@ export async function requireAuth(): Promise<AuthContext> {
 export async function requireAdmin(): Promise<AuthContext> {
   const ctx = await requireAuth();
   if (ctx.profile.role !== 'admin') {
-    throw new Error('Admin access required');
+    throw new Error(ERROR_MESSAGES.NOT_ADMIN);
   }
   return ctx;
 }

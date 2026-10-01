@@ -3,6 +3,10 @@
 import { requireAuth, requireAdmin } from './_shared/auth';
 import { revalidatePath } from 'next/cache';
 import { todayStr, nowTime } from '@/lib/utils/date';
+
+
+import { checkRateLimit, RATE_LIMITS, getClientIp } from '@/lib/rate-limit';
+import { logAudit, getRequestMeta } from '@/lib/audit';
 import {
   DEFAULT_WORK_START,
   DEFAULT_HALF_DAY_HOURS,
@@ -33,6 +37,13 @@ async function getSettings(supabase: SupabaseClient) {
 // ============ EMPLOYEE: CHECK IN ============
 export async function checkIn() {
   const { profile, supabase } = await requireAuth();
+  // ✅ Rate limit
+  const ip = await getClientIp();
+  const limit = checkRateLimit(`checkin:${profile.id}`, RATE_LIMITS.CHECK_IN);
+  if (!limit.success) {
+    throw new Error(`Too many attempts. Wait ${limit.retryAfterSeconds}s`);
+  }
+
   const today = todayStr();
   const now = nowTime();
 
@@ -226,6 +237,8 @@ export async function getAttendanceByDate(date: string) {
 
 // ============ ADMIN: SET / OVERRIDE ============
 export async function adminSetAttendance(
+
+  
   employeeId: string,
   date: string,
   data: {
@@ -247,6 +260,17 @@ export async function adminSetAttendance(
     short_day = hours < settings.half_day_hours;
     hours = Math.round(hours * 100) / 100;
   }
+  const meta = await getRequestMeta();
+  await logAudit({
+    actor_id: (await requireAdmin()).profile.id,
+    actor_email: (await requireAdmin()).profile.email,
+    action: 'attendance.admin_override',
+    entity_type: 'attendance',
+    entity_id: `${employeeId}:${date}`,
+    new_data: { status: data.status, check_in: data.check_in, check_out: data.check_out },
+    ip_address: meta.ip,
+    user_agent: meta.userAgent,
+  });
 
   const payload = {
     employee_id: employeeId,

@@ -6,6 +6,7 @@ import { useRouter } from 'next/navigation';
 import { createClient } from '@/lib/supabase/client';
 import { toast } from 'sonner';
 import { useAuth } from '@/lib/hooks/useAuth';
+import { APP_NAME, APP_DESCRIPTION } from '@/lib/constants';
 
 export default function LoginPage() {
   const router = useRouter();
@@ -15,24 +16,21 @@ export default function LoginPage() {
   const [loading, setLoading] = useState(false);
 
   useEffect(() => {
-    // ✅ STEP 1: PRIORITY — Recovery link detect karo aur turant forward
+    // Priority: recovery link detection
     const hash = window.location.hash;
     const search = window.location.search;
 
-    // Case A: #access_token=...&type=recovery (legacy)
     if (hash && hash.includes('type=recovery')) {
       router.replace('/reset-password' + hash);
       return;
     }
 
-    // Case B: ?code=... (PKCE) ya ?token_hash=...
     const params = new URLSearchParams(search);
     if (params.get('code') || params.get('token_hash')) {
       router.replace('/reset-password?' + params.toString());
       return;
     }
 
-    // ✅ STEP 2: Normal login page — load profile
     loadProfile();
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, []);
@@ -40,7 +38,7 @@ export default function LoginPage() {
   async function handleLogin(e: React.FormEvent) {
     e.preventDefault();
     if (!email || !password) {
-      toast.error('Email aur password daalo bhai');
+      toast.error('Email and password required');
       return;
     }
 
@@ -53,12 +51,12 @@ export default function LoginPage() {
     });
 
     if (error) {
-      toast.error(error.message || 'Login fail ho gaya');
+      toast.error(error.message || 'Login failed');
       setLoading(false);
       return;
     }
 
-    toast.success('Login ho gaya!');
+    toast.success('Welcome back!');
     router.push('/dashboard');
     router.refresh();
   }
@@ -66,16 +64,16 @@ export default function LoginPage() {
   return (
     <div className="login-screen">
       <div className="login-card">
-        <div className="login-logo">📋</div>
-        <h1>Roster Pro</h1>
-        <p>Employee &amp; Attendance Management</p>
+        <div className="login-logo">🏢</div>
+        <h1>{APP_NAME}</h1>
+        <p>{APP_DESCRIPTION}</p>
 
         <form onSubmit={handleLogin}>
           <div className="field">
             <label>Email</label>
             <input
               type="email"
-              placeholder="admin@rosterpro.local"
+              placeholder="your.email@businezexcellence.com"
               value={email}
               onChange={(e) => setEmail(e.target.value)}
               autoComplete="email"

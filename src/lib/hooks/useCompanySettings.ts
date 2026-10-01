@@ -2,7 +2,7 @@
 
 import { create } from 'zustand';
 import { persist, createJSONStorage } from 'zustand/middleware';
-import { getPublicCompanySettings } from '@/lib/actions/mails'; // ✅ Changed
+import { getPublicCompanySettings } from '@/lib/actions/mails';
 import type { CompanySettings } from '@/types/database';
 import {
   DEFAULT_WORK_START,
@@ -11,19 +11,25 @@ import {
   DEFAULT_FULL_DAY_HOURS,
   DEFAULT_LATE_GRACE_MINUTES,
   STORAGE_KEYS,
+  APP_NAME,
 } from '@/lib/constants';
 
+// Public-safe company settings (NO admin_email)
+type PublicCompanySettings = Omit<CompanySettings, 'admin_email'> & {
+  admin_email?: null;
+};
+
 interface CompanySettingsState {
-  settings: CompanySettings | null;
+  settings: PublicCompanySettings | null;
   loading: boolean;
   initialized: boolean;
   load: (force?: boolean) => Promise<void>;
   clear: () => void;
 }
 
-const fallback: CompanySettings = {
+const fallback: PublicCompanySettings = {
   id: 1,
-  company_name: 'Roster Pro',
+  company_name: APP_NAME,
   admin_email: null,
   work_start: DEFAULT_WORK_START,
   work_end: DEFAULT_WORK_END,
@@ -47,9 +53,13 @@ export const useCompanySettings = create<CompanySettingsState>()(
 
         set({ loading: true });
         try {
-          const s = await getPublicCompanySettings(); // ✅ Public-safe
+          const s = await getPublicCompanySettings();
           set({
-            settings: (s as CompanySettings) || fallback,
+            settings: {
+              ...fallback,
+              ...(s as PublicCompanySettings),
+              admin_email: null, // never expose
+            },
             loading: false,
             initialized: true,
           });

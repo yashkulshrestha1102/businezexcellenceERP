@@ -1,10 +1,14 @@
 // ============================================
-// ROSTER PRO — App Constants
+// BUSINEZEXCELLENCE STARTX LLP — App Constants
 // ============================================
 
-export const APP_NAME = 'Roster Pro';
-export const APP_DESCRIPTION = 'Employee & Attendance Management';
-export const APP_URL = process.env.NEXT_PUBLIC_SITE_URL || 'http://localhost:3000';
+export const APP_NAME =
+  process.env.NEXT_PUBLIC_COMPANY_NAME || 'Businezexcellence StartX LLP';
+export const APP_SHORT_NAME =
+  process.env.NEXT_PUBLIC_COMPANY_SHORT_NAME || 'Businezexcellence';
+export const APP_DESCRIPTION = 'Employee & Attendance Management System';
+export const APP_URL =
+  process.env.NEXT_PUBLIC_SITE_URL || 'http://localhost:3000';
 
 export const USER_ROLES = ['admin', 'employee'] as const;
 export const ATTENDANCE_STATUSES = ['Present', 'Half', 'Leave', 'Absent'] as const;
@@ -30,31 +34,29 @@ export const DEFAULT_FULL_DAY_HOURS = 8;
 export const DEFAULT_LATE_GRACE_MINUTES = 15;
 
 export const HALF_LEAVE_DAYS = 0.5;
-export const MIN_PASSWORD_LENGTH = 6;
+export const MIN_PASSWORD_LENGTH = 8;
 
 // Storage keys
 export const STORAGE_KEYS = {
-  TODAY_ATTENDANCE: 'roster-today-attendance',
-  COMPANY_SETTINGS: 'roster-company-settings',
-  AUTH_CACHE: 'roster-auth-cache',
+  TODAY_ATTENDANCE: 'bex-today-attendance',
+  COMPANY_SETTINGS: 'bex-company-settings',
+  AUTH_CACHE: 'bex-auth-cache',
 } as const;
 
 // Date / timezone
 export const TIMEZONE = 'Asia/Kolkata';
 export const IST_OFFSET_MINUTES = 330; // UTC+5:30
 
-
-
-
 // ============================================
 // Company Settings
 // ============================================
+// ✅ SECURITY FIX: admin_email removed from public fields
 export const PUBLIC_COMPANY_SETTINGS_FIELDS =
-  'id, company_name,admin_email, work_start, work_end, half_day_hours, full_day_hours, late_grace_minutes' as const;
+  'id, company_name, work_start, work_end, half_day_hours, full_day_hours, late_grace_minutes' as const;
 
 export const DEFAULT_COMPANY_SETTINGS = {
   id: 1,
-  company_name: 'Roster Pro',
+  company_name: 'Businezexcellence StartX LLP',
   admin_email: null,
   work_start: DEFAULT_WORK_START,
   work_end: DEFAULT_WORK_END,
@@ -63,9 +65,6 @@ export const DEFAULT_COMPANY_SETTINGS = {
   late_grace_minutes: DEFAULT_LATE_GRACE_MINUTES,
   updated_at: new Date().toISOString(),
 } as const;
-
-
-
 
 // ============================================
 // Error Messages (centralized for consistency)
@@ -94,7 +93,7 @@ export const ERROR_MESSAGES = {
   EMPLOYEE_NOT_FOUND: 'Employee not found',
   DUPLICATE_USERNAME: 'This username is already taken',
   DUPLICATE_EMAIL: 'This email is already registered',
-  PASSWORD_TOO_SHORT: `Password must be at least 6 characters`,
+  PASSWORD_TOO_SHORT: `Password must be at least ${MIN_PASSWORD_LENGTH} characters`,
   CANNOT_DELETE_SELF: 'You cannot delete your own account',
   CANNOT_REMOVE_OWN_ADMIN: 'You cannot remove your own admin role',
 
@@ -107,6 +106,9 @@ export const ERROR_MESSAGES = {
   EMAIL_REQUIRED: 'Email address is required',
   SUBJECT_REQUIRED: 'Subject is required',
   BODY_REQUIRED: 'Message body is required',
+
+  // Rate limiting
+  RATE_LIMITED: 'Too many requests. Please try again later.',
 
   // Generic
   UNKNOWN_ERROR: 'Something went wrong. Please try again.',

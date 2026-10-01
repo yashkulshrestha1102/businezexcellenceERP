@@ -1,19 +1,29 @@
 import type { Metadata, Viewport } from 'next';
 import { Toaster } from 'sonner';
-import { APP_NAME, APP_DESCRIPTION, APP_URL } from '@/lib/constants';
+import {
+  APP_NAME,
+  APP_SHORT_NAME,
+  APP_DESCRIPTION,
+  APP_URL,
+} from '@/lib/constants';
 import './globals.css';
 
 export const metadata: Metadata = {
   metadataBase: new URL(APP_URL),
-  title: `${APP_NAME} — ${APP_DESCRIPTION}`,
-  description: 'Reliable employee and attendance management system',
+  title: {
+    default: `${APP_NAME} — ${APP_DESCRIPTION}`,
+    template: `%s | ${APP_SHORT_NAME}`,
+  },
+  description: `${APP_DESCRIPTION} for ${APP_NAME}`,
   applicationName: APP_NAME,
   authors: [{ name: APP_NAME }],
+  creator: APP_NAME,
+  publisher: APP_NAME,
   manifest: '/manifest.webmanifest',
   appleWebApp: {
     capable: true,
     statusBarStyle: 'default',
-    title: APP_NAME,
+    title: APP_SHORT_NAME,
   },
   icons: {
     icon: [
@@ -31,7 +41,7 @@ export const metadata: Metadata = {
   },
   openGraph: {
     title: `${APP_NAME} — ${APP_DESCRIPTION}`,
-    description: 'Reliable employee and attendance management system',
+    description: `${APP_DESCRIPTION} for ${APP_NAME}`,
     siteName: APP_NAME,
     type: 'website',
     images: [{ url: '/icon-512.png', width: 512, height: 512 }],
@@ -41,6 +51,15 @@ export const metadata: Metadata = {
     title: APP_NAME,
     description: APP_DESCRIPTION,
     images: ['/icon-512.png'],
+  },
+  robots: {
+    index: false,
+    follow: false,
+    nocache: true,
+    googleBot: {
+      index: false,
+      follow: false,
+    },
   },
 };
 
@@ -69,7 +88,7 @@ export default function RootLayout({
               fontSize: '13.5px',
               fontWeight: '600',
             },
-            className: 'roster-toast',
+            className: 'bex-toast',
           }}
           richColors
           closeButton

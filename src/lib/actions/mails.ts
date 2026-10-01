@@ -10,16 +10,31 @@ import {
   PUBLIC_COMPANY_SETTINGS_FIELDS,
   DEFAULT_COMPANY_SETTINGS,
 } from '@/lib/constants';
+import { logAudit, getRequestMeta } from '@/lib/audit';
+import { checkRateLimit, RATE_LIMITS, getClientIp } from '@/lib/rate-limit';
+import { sendEmail } from '@/lib/email';
+import { env } from '@/lib/env';
 import type { CompanySettings } from '@/types/database';
 
-// ============ SEND MAIL ============
+// ============ SEND MAIL (logged + optional real email) ============
 export async function sendMail(input: {
   to_email: string;
   subject: string;
   body: string;
+  sendRealEmail?: boolean;
 }) {
-  const { profile, supabase } = await requireAuth();
+  const { profile, supabase, user } = await requireAuth();
 
+  // ✅ Rate limit
+  const ip = await getClientIp();
+  const limit = checkRateLimit(`mail:${user.id}`, RATE_LIMITS.EMAIL_SEND);
+  if (!limit.success) {
+    throw new Error(
+      `Too many emails. Try again in ${limit.retryAfterSeconds}s`
+    );
+  }
+
+  // Validate
   if (!input.to_email.trim()) throw new Error('Recipient email required');
   if (!input.subject.trim()) throw new Error('Subject required');
   if (!input.body.trim()) throw new Error('Body required');
@@ -27,12 +42,15 @@ export async function sendMail(input: {
     throw new Error('Invalid email format');
   }
 
+  const toEmail = input.to_email.trim().toLowerCase();
+
+  // Log in DB
   const { data, error } = await supabase
     .from('mails')
     .insert({
       from_user: profile.id,
       from_name: profile.name,
-      to_email: input.to_email.trim().toLowerCase(),
+      to_email: toEmail,
       subject: input.subject.trim(),
       body: input.body.trim(),
     })
@@ -40,6 +58,29 @@ export async function sendMail(input: {
     .single();
 
   if (error) throw new Error(error.message);
+
+  // Optionally send real email
+  if (input.sendRealEmail) {
+    await sendEmail({
+      to: toEmail,
+      subject: input.subject.trim(),
+      html: `<p>${input.body.replace(/\n/g, '<br>')}</p>`,
+      replyTo: profile.email,
+    });
+  }
+
+  // ✅ Audit
+  const meta = await getRequestMeta();
+  await logAudit({
+    actor_id: profile.id,
+    actor_email: profile.email,
+    action: 'mail.send',
+    entity_type: 'mail',
+    entity_id: data?.id,
+    new_data: { to_email: toEmail, subject: input.subject },
+    ip_address: ip,
+    user_agent: meta.userAgent,
+  });
 
   revalidatePath('/mail');
   revalidatePath('/me/mail');
@@ -49,12 +90,10 @@ export async function sendMail(input: {
 // ============ GET ALL MAILS (Admin only) ============
 export async function getAllMails() {
   const { supabase } = await requireAdmin();
-
   const { data, error } = await supabase
     .from('mails')
     .select('*')
     .order('sent_at', { ascending: false });
-
   if (error) throw new Error(error.message);
   return data || [];
 }
@@ -62,13 +101,11 @@ export async function getAllMails() {
 // ============ GET MY MAILS ============
 export async function getMyMails() {
   const { profile, supabase } = await requireAuth();
-
   const { data, error } = await supabase
     .from('mails')
     .select('*')
     .eq('from_user', profile.id)
     .order('sent_at', { ascending: false });
-
   if (error) throw new Error(error.message);
   return data || [];
 }
@@ -76,7 +113,6 @@ export async function getMyMails() {
 // ============ DELETE MAIL ============
 export async function deleteMail(id: string) {
   const { profile, supabase } = await requireAuth();
-
   const { data: mail } = await supabase
     .from('mails')
     .select('from_user')
@@ -101,8 +137,8 @@ export async function deleteMail(id: string) {
 // ============================================================
 
 /**
- * ✅ PUBLIC-SAFE settings — no admin_email exposure.
- * Use this for: useCompanySettings hook, dashboard display, attendance calculations.
+ * ✅ PUBLIC-SAFE settings — NO admin_email exposure.
+ * This is what employees see.
  */
 export async function getPublicCompanySettings() {
   const supabase = await createUserClient();
@@ -119,15 +155,23 @@ export async function getPublicCompanySettings() {
 
   if (error) throw new Error(error.message);
 
-  return data || DEFAULT_COMPANY_SETTINGS;
+  // ✅ Fixed: return fallback WITHOUT admin_email
+  return data || {
+    id: DEFAULT_COMPANY_SETTINGS.id,
+    company_name: DEFAULT_COMPANY_SETTINGS.company_name,
+    work_start: DEFAULT_COMPANY_SETTINGS.work_start,
+    work_end: DEFAULT_COMPANY_SETTINGS.work_end,
+    half_day_hours: DEFAULT_COMPANY_SETTINGS.half_day_hours,
+    full_day_hours: DEFAULT_COMPANY_SETTINGS.full_day_hours,
+    late_grace_minutes: DEFAULT_COMPANY_SETTINGS.late_grace_minutes,
+  };
 }
 
 /**
  * ✅ ADMIN-ONLY settings — includes admin_email + all fields.
- * Use this for: settings page, mail compose default recipient.
  */
 export async function getCompanySettings(): Promise<CompanySettings> {
-  const { supabase } = await requireAuth();
+  const { supabase } = await requireAdmin();
 
   const { data, error } = await supabase
     .from('company_settings')
@@ -137,7 +181,20 @@ export async function getCompanySettings(): Promise<CompanySettings> {
 
   if (error) throw new Error(error.message);
 
-  return (data as CompanySettings) || DEFAULT_COMPANY_SETTINGS;
+  // Merge with defaults to fill missing values
+  return (
+    (data as CompanySettings) || {
+      id: 1,
+      company_name: DEFAULT_COMPANY_SETTINGS.company_name,
+      admin_email: null,
+      work_start: DEFAULT_COMPANY_SETTINGS.work_start,
+      work_end: DEFAULT_COMPANY_SETTINGS.work_end,
+      half_day_hours: DEFAULT_COMPANY_SETTINGS.half_day_hours,
+      full_day_hours: DEFAULT_COMPANY_SETTINGS.full_day_hours,
+      late_grace_minutes: DEFAULT_COMPANY_SETTINGS.late_grace_minutes,
+      updated_at: new Date().toISOString(),
+    }
+  );
 }
 
 // ============ UPDATE COMPANY SETTINGS (Admin only) ============
@@ -150,7 +207,7 @@ export async function updateCompanySettings(input: {
   full_day_hours?: number;
   late_grace_minutes?: number;
 }) {
-  const { supabase } = await requireAdmin();
+  const { profile, supabase } = await requireAdmin();
 
   const update: Record<string, unknown> = {};
   if (input.company_name !== undefined)
@@ -172,6 +229,20 @@ export async function updateCompanySettings(input: {
     .eq('id', 1);
 
   if (error) throw new Error(error.message);
+
+  // ✅ Audit
+  const ip = await getClientIp();
+  const meta = await getRequestMeta();
+  await logAudit({
+    actor_id: profile.id,
+    actor_email: profile.email,
+    action: 'settings.update',
+    entity_type: 'settings',
+    entity_id: '1',
+    new_data: update,
+    ip_address: ip,
+    user_agent: meta.userAgent,
+  });
 
   revalidatePath('/settings');
   revalidatePath('/dashboard');
