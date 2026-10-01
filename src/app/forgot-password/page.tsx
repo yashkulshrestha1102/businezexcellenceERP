@@ -4,7 +4,6 @@ import { useState } from 'react';
 import Link from 'next/link';
 import { toast } from 'sonner';
 import { createClient } from '@/lib/supabase/client';
-import { APP_NAME, APP_URL } from '@/lib/constants';
 
 export default function ForgotPasswordPage() {
   const [email, setEmail] = useState('');
@@ -30,7 +29,8 @@ export default function ForgotPasswordPage() {
     const { error } = await supabase.auth.resetPasswordForEmail(
       email.trim().toLowerCase(),
       {
-        redirectTo: `${APP_URL}/reset-password`,
+        // ✅ Dynamic — current origin use karega (localhost ya vercel)
+        redirectTo: `${window.location.origin}/reset-password`,
       }
     );
 

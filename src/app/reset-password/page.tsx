@@ -12,30 +12,52 @@ export default function ResetPasswordPage() {
   const [password, setPassword] = useState('');
   const [confirm, setConfirm] = useState('');
   const [loading, setLoading] = useState(false);
-  const [validSession, setValidSession] = useState(false);
   const [checking, setChecking] = useState(true);
+  const [valid, setValid] = useState(false);
+  const [errorMsg, setErrorMsg] = useState<string | null>(null);
 
   useEffect(() => {
-    // Check if user has a valid reset session
-    const checkSession = async () => {
+    const checkReset = async () => {
       const supabase = createClient();
+
+      // ✅ STEP 1: Check URL hash for error
+      const hash = window.location.hash;
+      if (hash) {
+        const params = new URLSearchParams(hash.substring(1));
+        const error = params.get('error');
+        const errorDescription = params.get('error_description');
+        const errorCode = params.get('error_code');
+
+        if (error || errorCode) {
+          setErrorMsg(
+            errorDescription?.replace(/\+/g, ' ') ||
+              'Reset link is invalid or has expired'
+          );
+          setChecking(false);
+          return;
+        }
+      }
+
+      // ✅ STEP 2: Wait for Supabase to set session from URL tokens
+      // Supabase processes the access_token in URL automatically
+      await new Promise((r) => setTimeout(r, 800));
+
       const {
         data: { session },
       } = await supabase.auth.getSession();
 
       if (!session) {
-        toast.error('Invalid or expired reset link');
-        setTimeout(() => router.push('/forgot-password'), 2000);
+        setErrorMsg('Reset link is invalid or has expired. Please request a new one.');
         setChecking(false);
         return;
       }
 
-      setValidSession(true);
+      setValid(true);
       setChecking(false);
     };
 
-    checkSession();
-  }, [router]);
+    checkReset();
+  }, []);
 
   async function handleSubmit(e: React.FormEvent) {
     e.preventDefault();
@@ -58,9 +80,7 @@ export default function ResetPasswordPage() {
     setLoading(true);
     const supabase = createClient();
 
-    const { error } = await supabase.auth.updateUser({
-      password: password,
-    });
+    const { error } = await supabase.auth.updateUser({ password });
 
     if (error) {
       toast.error(error.message);
@@ -69,32 +89,45 @@ export default function ResetPasswordPage() {
     }
 
     toast.success('Password updated! Please login');
-    setTimeout(() => router.push('/login'), 1500);
+    // Sign out to force fresh login
+    await supabase.auth.signOut();
+    setTimeout(() => router.push('/login'), 1200);
     setLoading(false);
   }
 
+  // === LOADING STATE ===
   if (checking) {
     return (
       <div className="login-screen">
         <div className="login-card" style={{ textAlign: 'center' }}>
           <div className="login-logo">🔐</div>
-          <h1>Verifying...</h1>
-          <p>Please wait while we verify your reset link</p>
+          <h1>Verifying Link</h1>
+          <p style={{ color: 'var(--muted)' }}>
+            Please wait while we verify your reset link
+          </p>
         </div>
       </div>
     );
   }
 
-  if (!validSession) {
+  // === ERROR STATE ===
+  if (errorMsg || !valid) {
     return (
       <div className="login-screen">
         <div className="login-card" style={{ textAlign: 'center' }}>
           <div style={{ fontSize: 64, marginBottom: 12 }}>⚠️</div>
-          <h1 style={{ fontSize: 22, color: 'var(--teal-800)' }}>
+          <h1 style={{ fontSize: 22, color: 'var(--teal-800)', marginBottom: 12 }}>
             Invalid Reset Link
           </h1>
-          <p style={{ color: 'var(--muted)', marginBottom: 20 }}>
-            This link is invalid or has expired
+          <p
+            style={{
+              color: 'var(--muted)',
+              marginBottom: 20,
+              fontSize: 14,
+              lineHeight: 1.6,
+            }}
+          >
+            {errorMsg || 'This link is invalid or has expired'}
           </p>
           <Link
             href="/forgot-password"
@@ -103,11 +136,25 @@ export default function ResetPasswordPage() {
           >
             Request New Link
           </Link>
+          <div style={{ marginTop: 16 }}>
+            <Link
+              href="/login"
+              style={{
+                color: 'var(--teal-600)',
+                fontSize: 13,
+                textDecoration: 'none',
+                fontWeight: 600,
+              }}
+            >
+              ← Back to Login
+            </Link>
+          </div>
         </div>
       </div>
     );
   }
 
+  // === SUCCESS STATE — Show form ===
   return (
     <div className="login-screen">
       <div className="login-card">
