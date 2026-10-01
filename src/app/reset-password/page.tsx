@@ -20,39 +20,102 @@ export default function ResetPasswordPage() {
     const checkReset = async () => {
       const supabase = createClient();
 
-      // ✅ STEP 1: Check URL hash for error
-      const hash = window.location.hash;
-      if (hash) {
-        const params = new URLSearchParams(hash.substring(1));
-        const error = params.get('error');
-        const errorDescription = params.get('error_description');
-        const errorCode = params.get('error_code');
+      // ============ 1. Check for URL error params ============
+      const searchParams = new URLSearchParams(window.location.search);
+      const hashParams = new URLSearchParams(
+        window.location.hash.substring(1)
+      );
 
-        if (error || errorCode) {
-          setErrorMsg(
-            errorDescription?.replace(/\+/g, ' ') ||
-              'Reset link is invalid or has expired'
-          );
+      const error =
+        searchParams.get('error') ||
+        hashParams.get('error') ||
+        searchParams.get('error_code') ||
+        hashParams.get('error_code');
+
+      const errorDescription =
+        searchParams.get('error_description') ||
+        hashParams.get('error_description');
+
+      if (error) {
+        setErrorMsg(
+          errorDescription?.replace(/\+/g, ' ') ||
+            'Reset link is invalid or has expired'
+        );
+        setChecking(false);
+        return;
+      }
+
+      // ============ 2. Handle PKCE code exchange (new Supabase format) ============
+      const code = searchParams.get('code');
+      if (code) {
+        try {
+          const { error: exchangeError } =
+            await supabase.auth.exchangeCodeForSession(code);
+
+          if (exchangeError) {
+            setErrorMsg(
+              'Reset link is invalid or has expired. Please request a new one.'
+            );
+            setChecking(false);
+            return;
+          }
+          // ✅ Session established
+          setValid(true);
+          setChecking(false);
+          return;
+        } catch {
+          setErrorMsg('Failed to verify reset link');
           setChecking(false);
           return;
         }
       }
 
-      // ✅ STEP 2: Wait for Supabase to set session from URL tokens
-      // Supabase processes the access_token in URL automatically
-      await new Promise((r) => setTimeout(r, 800));
+      // ============ 3. Fallback: legacy hash-based (access_token) ============
+      const accessToken = hashParams.get('access_token');
+      const refreshToken = hashParams.get('refresh_token');
+      const type = hashParams.get('type');
 
+      if (accessToken && refreshToken && type === 'recovery') {
+        try {
+          const { error: setSessionError } =
+            await supabase.auth.setSession({
+              access_token: accessToken,
+              refresh_token: refreshToken,
+            });
+
+          if (setSessionError) {
+            setErrorMsg(
+              'Reset link is invalid or has expired. Please request a new one.'
+            );
+            setChecking(false);
+            return;
+          }
+          setValid(true);
+          setChecking(false);
+          return;
+        } catch {
+          setErrorMsg('Failed to verify reset link');
+          setChecking(false);
+          return;
+        }
+      }
+
+      // ============ 4. Already logged in? Check session ============
+      await new Promise((r) => setTimeout(r, 500));
       const {
         data: { session },
       } = await supabase.auth.getSession();
 
-      if (!session) {
-        setErrorMsg('Reset link is invalid or has expired. Please request a new one.');
+      if (session) {
+        setValid(true);
         setChecking(false);
         return;
       }
 
-      setValid(true);
+      // ============ 5. No valid state ============
+      setErrorMsg(
+        'Reset link is invalid or has expired. Please request a new one.'
+      );
       setChecking(false);
     };
 
@@ -89,13 +152,12 @@ export default function ResetPasswordPage() {
     }
 
     toast.success('Password updated! Please login');
-    // Sign out to force fresh login
     await supabase.auth.signOut();
     setTimeout(() => router.push('/login'), 1200);
     setLoading(false);
   }
 
-  // === LOADING STATE ===
+  // ============ LOADING ============
   if (checking) {
     return (
       <div className="login-screen">
@@ -110,7 +172,7 @@ export default function ResetPasswordPage() {
     );
   }
 
-  // === ERROR STATE ===
+  // ============ ERROR ============
   if (errorMsg || !valid) {
     return (
       <div className="login-screen">
@@ -154,7 +216,7 @@ export default function ResetPasswordPage() {
     );
   }
 
-  // === SUCCESS STATE — Show form ===
+  // ============ SUCCESS — Show Form ============
   return (
     <div className="login-screen">
       <div className="login-card">
