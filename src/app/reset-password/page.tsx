@@ -20,12 +20,10 @@ export default function ResetPasswordPage() {
     const checkReset = async () => {
       const supabase = createClient();
 
-      // ============ 1. Check for URL error params ============
       const searchParams = new URLSearchParams(window.location.search);
-      const hashParams = new URLSearchParams(
-        window.location.hash.substring(1)
-      );
+      const hashParams = new URLSearchParams(window.location.hash.substring(1));
 
+      // === 1. URL error params ===
       const error =
         searchParams.get('error') ||
         hashParams.get('error') ||
@@ -45,62 +43,79 @@ export default function ResetPasswordPage() {
         return;
       }
 
-      // ============ 2. Handle PKCE code exchange (new Supabase format) ============
+      // === 2. token_hash in URL (Supabase v2 format) ===
+      const tokenHash =
+        searchParams.get('token_hash') || hashParams.get('token_hash');
+      const type = searchParams.get('type') || hashParams.get('type');
+
+      if (tokenHash && type === 'recovery') {
+        const { error: otpError } = await supabase.auth.verifyOtp({
+          token_hash: tokenHash,
+          type: 'recovery',
+        });
+        if (otpError) {
+          setErrorMsg(
+            'Reset link is invalid or has expired. Please request a new one.'
+          );
+          setChecking(false);
+          return;
+        }
+        setValid(true);
+        setChecking(false);
+        return;
+      }
+
+      // === 3. PKCE code in URL ===
       const code = searchParams.get('code');
       if (code) {
-        try {
-          const { error: exchangeError } =
-            await supabase.auth.exchangeCodeForSession(code);
+        const { error: exchangeError } =
+          await supabase.auth.exchangeCodeForSession(code);
 
-          if (exchangeError) {
-            setErrorMsg(
-              'Reset link is invalid or has expired. Please request a new one.'
-            );
-            setChecking(false);
-            return;
-          }
-          // ✅ Session established
+        if (!exchangeError) {
           setValid(true);
           setChecking(false);
           return;
-        } catch {
-          setErrorMsg('Failed to verify reset link');
+        }
+
+        // Fallback: try as token_hash
+        const { error: otpError } = await supabase.auth.verifyOtp({
+          token_hash: code,
+          type: 'recovery',
+        });
+        if (!otpError) {
+          setValid(true);
           setChecking(false);
           return;
         }
+
+        setErrorMsg(
+          'Reset link is invalid or has expired. Please request a new one.'
+        );
+        setChecking(false);
+        return;
       }
 
-      // ============ 3. Fallback: legacy hash-based (access_token) ============
+      // === 4. Legacy #access_token=... ===
       const accessToken = hashParams.get('access_token');
       const refreshToken = hashParams.get('refresh_token');
-      const type = hashParams.get('type');
+      const hashType = hashParams.get('type');
 
-      if (accessToken && refreshToken && type === 'recovery') {
-        try {
-          const { error: setSessionError } =
-            await supabase.auth.setSession({
-              access_token: accessToken,
-              refresh_token: refreshToken,
-            });
-
-          if (setSessionError) {
-            setErrorMsg(
-              'Reset link is invalid or has expired. Please request a new one.'
-            );
-            setChecking(false);
-            return;
-          }
+      if (accessToken && refreshToken && hashType === 'recovery') {
+        const { error: sessionError } = await supabase.auth.setSession({
+          access_token: accessToken,
+          refresh_token: refreshToken,
+        });
+        if (!sessionError) {
           setValid(true);
           setChecking(false);
           return;
-        } catch {
-          setErrorMsg('Failed to verify reset link');
-          setChecking(false);
-          return;
         }
+        setErrorMsg(sessionError.message);
+        setChecking(false);
+        return;
       }
 
-      // ============ 4. Already logged in? Check session ============
+      // === 5. Existing session ===
       await new Promise((r) => setTimeout(r, 500));
       const {
         data: { session },
@@ -112,7 +127,6 @@ export default function ResetPasswordPage() {
         return;
       }
 
-      // ============ 5. No valid state ============
       setErrorMsg(
         'Reset link is invalid or has expired. Please request a new one.'
       );
@@ -129,12 +143,10 @@ export default function ResetPasswordPage() {
       toast.error('Please fill both fields');
       return;
     }
-
     if (password.length < MIN_PASSWORD_LENGTH) {
       toast.error(`Password must be at least ${MIN_PASSWORD_LENGTH} characters`);
       return;
     }
-
     if (password !== confirm) {
       toast.error('Passwords do not match');
       return;
@@ -157,7 +169,6 @@ export default function ResetPasswordPage() {
     setLoading(false);
   }
 
-  // ============ LOADING ============
   if (checking) {
     return (
       <div className="login-screen">
@@ -172,7 +183,6 @@ export default function ResetPasswordPage() {
     );
   }
 
-  // ============ ERROR ============
   if (errorMsg || !valid) {
     return (
       <div className="login-screen">
@@ -216,7 +226,6 @@ export default function ResetPasswordPage() {
     );
   }
 
-  // ============ SUCCESS — Show Form ============
   return (
     <div className="login-screen">
       <div className="login-card">
