@@ -15,21 +15,24 @@ export default function LoginPage() {
   const [loading, setLoading] = useState(false);
 
   useEffect(() => {
-    // Reset auth state on login page
-    loadProfile();
-    // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, []);
-
-
-
-
-   // ✅ Detect recovery hash and forward to /reset-password
-  useEffect(() => {
+    // ✅ STEP 1: PRIORITY — Recovery link detect karo aur turant forward
     const hash = window.location.hash;
+    const search = window.location.search;
+
+    // Case A: #access_token=...&type=recovery (legacy)
     if (hash && hash.includes('type=recovery')) {
       router.replace('/reset-password' + hash);
       return;
     }
+
+    // Case B: ?code=... (PKCE) ya ?token_hash=...
+    const params = new URLSearchParams(search);
+    if (params.get('code') || params.get('token_hash')) {
+      router.replace('/reset-password?' + params.toString());
+      return;
+    }
+
+    // ✅ STEP 2: Normal login page — load profile
     loadProfile();
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, []);
